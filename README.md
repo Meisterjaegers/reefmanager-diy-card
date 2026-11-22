@@ -17,7 +17,7 @@ Falls HACS die Ressource nicht automatisch registriert, füge unter **Einstellun
 
 ## Reefmanager-Karte
 
-Die Reefmanager-Karte zeigt die aktuelle Temperatur, den Temperaturverlauf sowie die Durchschnittstemperatur der letzten 24 Stunden und sieben Tage. Der Verlauf wird über `/api/temperature/history.bin` geladen und standardmäßig auf die letzten sieben Tage begrenzt. Der Titel „Reefmanager“ verlinkt auf die Weboberfläche des Geräts.
+Die Reefmanager-Karte zeigt die aktuelle Temperatur, den Temperaturverlauf sowie die Durchschnittstemperatur der letzten 24 Stunden und sieben Tage. Der Verlauf wird über `/api/temperature/history.bin` geladen und standardmäßig auf die letzten sieben Tage begrenzt. Der Titel „Reefmanager“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`.
 
 Standard-IP-Adresse: `192.168.178.91`
 
@@ -58,7 +58,7 @@ Die Füllstandsringe der Dosierbehälter zeigen den aktuellen Inhalt und färben
 
 ## Multimate-Karte
 
-Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt den letzten KH-Messwert, den Verlauf sowie die KH-Durchschnitte der letzten 24 Stunden und sieben Tage aus `/api/kh/status` und `/api/kh/history`. Reagenz- und Abwasserstand werden als Füllstandsringe aus `/api/containers` angezeigt. Der Titel „Multimate“ verlinkt auf die Weboberfläche des Geräts. Die KH-Kurve interpoliert weich zwischen diesen Farbwerten:
+Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt den letzten KH-Messwert, den Verlauf sowie die KH-Durchschnitte der letzten 24 Stunden und sieben Tage aus `/api/kh/status` und `/api/kh/history`. Reagenz- und Abwasserstand werden als Füllstandsringe aus `/api/containers` angezeigt. Der Titel „Multimate“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`. Die KH-Kurve interpoliert weich zwischen diesen Farbwerten:
 
 | KH-Wert | Farbe |
 |---:|:---|
