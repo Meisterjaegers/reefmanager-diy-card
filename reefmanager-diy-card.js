@@ -3,54 +3,135 @@ const MULTIMATE_HOST = "192.168.178.92";
 const DEFAULT_REFRESH_INTERVAL = 30;
 const MIN_REFRESH_INTERVAL = 5;
 const MAX_REFRESH_INTERVAL = 3600;
+const DEFAULT_HISTORY_DAYS = 7;
+const MIN_HISTORY_DAYS = 1;
+const MAX_HISTORY_DAYS = 7;
+const DEFAULT_TEMPERATURE_GRADIENT = [
+  { value: 23, color: "#A2D2FF" },
+  { value: 24.5, color: "#A8E6CF" },
+  { value: 25, color: "#B8E994" },
+  { value: 25.5, color: "#FFF3B0" },
+  { value: 27, color: "#FFADAD" },
+];
 
 class ReefmanagerCardBase extends HTMLElement {
   static getStubConfig() {
-    return {
+    const config = {
       host: this.defaultHost,
       title: this.defaultTitle,
       refresh_interval: DEFAULT_REFRESH_INTERVAL,
+      ...(this.device !== "multimate"
+        ? { history_days: DEFAULT_HISTORY_DAYS }
+        : {}),
     };
+    if (this.device !== "multimate") {
+      DEFAULT_TEMPERATURE_GRADIENT.forEach((stop, index) => {
+        config[`temperature_gradient_${index + 1}_value`] = stop.value;
+        config[`temperature_gradient_${index + 1}_color`] = stop.color;
+      });
+    }
+    return config;
   }
 
   static getConfigForm() {
-    return {
-      schema: [
-        {
-          name: "host",
-          required: true,
-          default: this.defaultHost,
-          selector: { text: {} },
-        },
-        {
-          name: "title",
-          default: this.defaultTitle,
-          selector: { text: {} },
-        },
-        {
-          name: "refresh_interval",
-          default: DEFAULT_REFRESH_INTERVAL,
-          selector: {
-            number: {
-              min: MIN_REFRESH_INTERVAL,
-              max: MAX_REFRESH_INTERVAL,
-              step: 1,
-              unit_of_measurement: "s",
-              mode: "box",
-            },
+    const schema = [
+      {
+        name: "host",
+        required: true,
+        default: this.defaultHost,
+        selector: { text: {} },
+      },
+      {
+        name: "title",
+        default: this.defaultTitle,
+        selector: { text: {} },
+      },
+      {
+        name: "refresh_interval",
+        default: DEFAULT_REFRESH_INTERVAL,
+        selector: {
+          number: {
+            min: 0,
+            max: MAX_REFRESH_INTERVAL,
+            step: 1,
+            unit_of_measurement: "s",
+            mode: "box",
           },
         },
-      ],
+      },
+    ];
+    if (this.device !== "multimate") {
+      schema.push({
+        name: "history_days",
+        default: DEFAULT_HISTORY_DAYS,
+        selector: {
+          number: {
+            min: MIN_HISTORY_DAYS,
+            max: MAX_HISTORY_DAYS,
+            step: 1,
+            unit_of_measurement: "d",
+            mode: "box",
+          },
+        },
+      });
+      DEFAULT_TEMPERATURE_GRADIENT.forEach((stop, index) => {
+        const point = index + 1;
+        schema.push(
+          {
+            name: `temperature_gradient_${point}_value`,
+            default: stop.value,
+            selector: {
+              number: {
+                min: -10,
+                max: 60,
+                step: 0.1,
+                unit_of_measurement: "°C",
+                mode: "box",
+              },
+            },
+          },
+          {
+            name: `temperature_gradient_${point}_color`,
+            default: stop.color,
+            selector: { text: {} },
+          },
+        );
+      });
+    }
+
+    return {
+      schema,
       computeLabel: (schema) =>
         ({
           host: "IP-Adresse",
           title: "Kartentitel",
           refresh_interval: "Aktualisierungsintervall",
+          history_days: "Temperaturhistorie (Tage)",
+          ...Object.fromEntries(
+            DEFAULT_TEMPERATURE_GRADIENT.flatMap((_, index) => [
+              [
+                `temperature_gradient_${index + 1}_value`,
+                `Farbpunkt ${index + 1}: Temperatur`,
+              ],
+              [
+                `temperature_gradient_${index + 1}_color`,
+                `Farbpunkt ${index + 1}: Farbe (#RRGGBB)`,
+              ],
+            ]),
+          ),
         })[schema.name],
       computeHelper: (schema) =>
         ({
           host: "Nur die IP-Adresse eingeben, ohne http://.",
-          refresh_interval: "Zwischen 5 Sekunden und 1 Stunde.",
+          refresh_interval:
+            "0 lädt die Werte einmal beim Öffnen der Karte; 5 bis 3600 aktualisiert regelmäßig.",
+          history_days: "Zeigt die Messwerte der letzten 1 bis 7 Tage.",
+          ...Object.fromEntries(
+            DEFAULT_TEMPERATURE_GRADIENT.map((_, index) => [
+              `temperature_gradient_${index + 1}_value`,
+              "Die Temperaturpunkte müssen aufsteigend sortiert sein.",
+            ]),
+          ),
         })[schema.name],
     };
   }
@@ -77,21 +158,39 @@ class ReefmanagerCardBase extends HTMLElement {
         ? "multimate"
         : this.constructor.device;
     const refreshInterval = config.refresh_interval ?? DEFAULT_REFRESH_INTERVAL;
+    const historyDays = config.history_days ?? DEFAULT_HISTORY_DAYS;
+    const temperatureGradient =
+      this._device === "reefmanager"
+        ? this._getTemperatureGradient(config)
+        : undefined;
     if (
       typeof refreshInterval !== "number" ||
       !Number.isFinite(refreshInterval) ||
-      refreshInterval < MIN_REFRESH_INTERVAL ||
+      (refreshInterval !== 0 &&
+        refreshInterval < MIN_REFRESH_INTERVAL) ||
       refreshInterval > MAX_REFRESH_INTERVAL
     ) {
       throw new Error(
-        `refresh_interval muss zwischen ${MIN_REFRESH_INTERVAL} und ${MAX_REFRESH_INTERVAL} Sekunden liegen.`,
+        `refresh_interval muss 0 oder zwischen 5 und ${MAX_REFRESH_INTERVAL} Sekunden liegen.`,
+      );
+    }
+    if (
+      this._device === "reefmanager" &&
+      (!Number.isInteger(historyDays) ||
+        historyDays < MIN_HISTORY_DAYS ||
+        historyDays > MAX_HISTORY_DAYS)
+    ) {
+      throw new Error(
+        `history_days muss eine ganze Zahl zwischen ${MIN_HISTORY_DAYS} und ${MAX_HISTORY_DAYS} sein.`,
       );
     }
     this._config = {
       ...config,
       host: this._normalizeHost(config.host || this._defaultHost()),
       refresh_interval: refreshInterval,
+      ...(this._device === "reefmanager" ? { history_days: historyDays } : {}),
     };
+    if (temperatureGradient) this._temperatureGradient = temperatureGradient;
     this._render();
     if (this.isConnected) this._startPolling();
   }
@@ -108,12 +207,34 @@ class ReefmanagerCardBase extends HTMLElement {
     return this._device === "reefmanager" ? 4 : 3;
   }
 
-  getConfigElement() {
-    return document.createElement(this.constructor.editorTag);
-  }
-
   getStubConfig() {
     return this.constructor.getStubConfig();
+  }
+
+  _getTemperatureGradient(config) {
+    const gradient = DEFAULT_TEMPERATURE_GRADIENT.map((stop, index) => ({
+      value:
+        config[`temperature_gradient_${index + 1}_value`] ?? stop.value,
+      color:
+        config[`temperature_gradient_${index + 1}_color`] ?? stop.color,
+    }));
+    if (
+      gradient.some(
+        (stop, index) =>
+          typeof stop.value !== "number" ||
+          !Number.isFinite(stop.value) ||
+          stop.value < -10 ||
+          stop.value > 60 ||
+          typeof stop.color !== "string" ||
+          !/^#[0-9a-f]{6}$/i.test(stop.color) ||
+          (index > 0 && stop.value <= gradient[index - 1].value),
+      )
+    ) {
+      throw new Error(
+        "Die Temperatur-Farbpunkte müssen gültige Hex-Farben haben und aufsteigend sortiert sein.",
+      );
+    }
+    return gradient;
   }
 
   _deviceType() {
@@ -147,7 +268,9 @@ class ReefmanagerCardBase extends HTMLElement {
 
   _startPolling() {
     window.clearInterval(this._timer);
+    this._timer = null;
     this._refresh();
+    if (this._config.refresh_interval === 0) return;
     this._timer = window.setInterval(
       () => this._refresh(),
       this._config.refresh_interval * 1000,
@@ -210,21 +333,6 @@ class ReefmanagerCardBase extends HTMLElement {
     return element;
   }
 
-  _section(title) {
-    const section = this._element("section");
-    section.append(this._element("h2", "", title));
-    return section;
-  }
-
-  _metric(label, value, unit = "") {
-    const row = this._element("div", "metric");
-    row.append(
-      this._element("span", "label", label),
-      this._element("span", "value", `${value}${unit}`),
-    );
-    return row;
-  }
-
   async _fetchTemperatureHistory() {
     const response = await fetch(
       `http://${this._config.host}/api/temperature/history.bin`,
@@ -256,17 +364,9 @@ class ReefmanagerCardBase extends HTMLElement {
 
   _temperatureTile(control) {
     const tile = this._element("article", "tile temperature-tile");
-    const label = control.name || "Temperatur";
     const value = Number.isFinite(control.currentTemp)
       ? control.currentTemp.toFixed(2)
       : "—";
-    const heading = this._element("div", "tile-heading");
-    heading.append(
-      this._element("span", "tile-label", label),
-      this._element("span", "thermometer", "♨"),
-    );
-    tile.append(heading);
-
     const reading = this._element("div", "temperature-reading");
     reading.append(
       this._element("span", "temperature-value", value),
@@ -291,26 +391,80 @@ class ReefmanagerCardBase extends HTMLElement {
     svg.setAttribute("viewBox", "0 0 200 40");
     svg.setAttribute("preserveAspectRatio", "none");
     svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", "Temperaturverlauf aus der Gerätehistorie");
-
     const key = String(control.port ?? control.name ?? "temperature");
-    const history = this._temperatureHistory.get(key) ?? [];
+    const historyDays = this._config.history_days ?? DEFAULT_HISTORY_DAYS;
+    const windowSeconds = historyDays * 24 * 60 * 60;
+    const endTimestamp = Date.now() / 1000;
+    const startTimestamp = endTimestamp - windowSeconds;
+    svg.setAttribute(
+      "aria-label",
+      `Temperaturverlauf der letzten ${historyDays} Tage`,
+    );
+    const history = (this._temperatureHistory.get(key) ?? []).filter(
+      (point) =>
+        point.timestamp >= startTimestamp && point.timestamp <= endTimestamp,
+    );
     if (history.length === 0) return svg;
     const values = history.map((point) => point.value);
     const min = Math.min(...values);
     const max = Math.max(...values);
     const range = max - min || 1;
-    const points = history
-      .map((point, index) => {
-        const x = (index / Math.max(history.length - 1, 1)) * 200;
-        const y = 36 - ((point.value - min) / range) * 32;
-        return `${x},${y}`;
-      })
-      .join(" ");
-    const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-    line.setAttribute("points", points);
-    svg.append(line);
+    const coordinates = history.map((point, index) => ({
+      x: history.length === 1 ? 100 : (index / (history.length - 1)) * 200,
+      y: 36 - ((point.value - min) / range) * 32,
+      value: point.value,
+    }));
+    if (coordinates.length === 1) {
+      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dot.setAttribute("cx", String(coordinates[0].x));
+      dot.setAttribute("cy", String(coordinates[0].y));
+      dot.setAttribute("r", "2");
+      dot.setAttribute("fill", this._temperatureColor(coordinates[0].value));
+      svg.append(dot);
+      return svg;
+    }
+
+    for (let index = 1; index < coordinates.length; index += 1) {
+      const previous = coordinates[index - 1];
+      const current = coordinates[index];
+      const segment = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      segment.setAttribute("x1", String(previous.x));
+      segment.setAttribute("y1", String(previous.y));
+      segment.setAttribute("x2", String(current.x));
+      segment.setAttribute("y2", String(current.y));
+      segment.setAttribute(
+        "stroke",
+        this._temperatureColor((previous.value + current.value) / 2),
+      );
+      segment.setAttribute("stroke-width", "2");
+      segment.setAttribute("stroke-linecap", "round");
+      svg.append(segment);
+    }
     return svg;
+  }
+
+  _temperatureColor(value) {
+    const gradient = this._temperatureGradient ?? DEFAULT_TEMPERATURE_GRADIENT;
+    if (value <= gradient[0].value) return gradient[0].color;
+    if (value >= gradient[gradient.length - 1].value) {
+      return gradient[gradient.length - 1].color;
+    }
+
+    const nextIndex = gradient.findIndex((stop) => stop.value >= value);
+    const lower = gradient[nextIndex - 1];
+    const upper = gradient[nextIndex];
+    const ratio = (value - lower.value) / (upper.value - lower.value);
+    const easedRatio = ratio * ratio * (3 - 2 * ratio);
+    const lowerRgb = lower.color
+      .match(/[a-f\d]{2}/gi)
+      .map((part) => parseInt(part, 16));
+    const upperRgb = upper.color
+      .match(/[a-f\d]{2}/gi)
+      .map((part) => parseInt(part, 16));
+    const rgb = lowerRgb.map((component, index) =>
+      Math.round(component + (upperRgb[index] - component) * easedRatio),
+    );
+    return `#${rgb.map((component) => component.toString(16).padStart(2, "0")).join("")}`;
   }
 
   _containerTile(item) {
@@ -326,38 +480,53 @@ class ReefmanagerCardBase extends HTMLElement {
 
     const gauge = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     gauge.setAttribute("class", "container-gauge");
-    gauge.setAttribute("viewBox", "0 0 120 72");
+    gauge.setAttribute("viewBox", "0 0 100 100");
     gauge.setAttribute("role", "img");
     gauge.setAttribute(
       "aria-label",
       percentage === null ? `${label}: kein Füllstand` : `${label}: ${Math.round(percentage * 100)} %`,
     );
 
-    const track = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const circumference = 2 * Math.PI * 42;
+    const track = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     track.setAttribute("class", "gauge-track");
-    track.setAttribute("d", "M 12 60 A 48 48 0 0 1 108 60");
+    track.setAttribute("cx", "50");
+    track.setAttribute("cy", "50");
+    track.setAttribute("r", "42");
     gauge.append(track);
 
     if (percentage !== null) {
-      const angle = Math.PI * (1 - percentage);
-      const x = 60 + 48 * Math.cos(angle);
-      const y = 60 - 48 * Math.sin(angle);
-      const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      arc.setAttribute("class", `gauge-value${percentage <= 0.4 ? " low" : ""}`);
+      const arc = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       arc.setAttribute(
-        "d",
-        `M 12 60 A 48 48 0 ${percentage > 0.5 ? 1 : 0} 1 ${x} ${y}`,
+        "class",
+        `gauge-value${percentage < 0.25 ? " low" : percentage < 0.5 ? " medium" : ""}`,
       );
+      arc.setAttribute("cx", "50");
+      arc.setAttribute("cy", "50");
+      arc.setAttribute("r", "42");
+      arc.setAttribute("stroke-dasharray", String(circumference));
+      arc.setAttribute(
+        "stroke-dashoffset",
+        String(circumference * (1 - percentage)),
+      );
+      arc.setAttribute("transform", "rotate(-90 50 50)");
       gauge.append(arc);
     }
 
     const reading = document.createElementNS("http://www.w3.org/2000/svg", "text");
     reading.classList.add("gauge-reading");
-    reading.textContent = `${this._number(current)} ml`;
-    reading.setAttribute("x", "60");
-    reading.setAttribute("y", "57");
+    reading.textContent = `${this._number(current)}`;
+    reading.setAttribute("x", "50");
+    reading.setAttribute("y", "48");
     reading.setAttribute("text-anchor", "middle");
     gauge.append(reading);
+    const unit = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    unit.classList.add("gauge-unit");
+    unit.textContent = "ml";
+    unit.setAttribute("x", "50");
+    unit.setAttribute("y", "61");
+    unit.setAttribute("text-anchor", "middle");
+    gauge.append(unit);
     tile.append(gauge, this._element("div", "gauge-label", label));
 
     if (Number.isFinite(item.days_left) && item.days_left >= 0) {
@@ -390,50 +559,36 @@ class ReefmanagerCardBase extends HTMLElement {
   }
 
   _multimateContent() {
-    const fragment = document.createDocumentFragment();
-    const kh = this._section("KH-Wert");
+    const grid = this._element("div", "reefmanager-grid");
     const value = this._data.status.last_kh;
-    kh.append(
-      this._metric(
-        "Letzte Messung",
-        Number.isFinite(value) ? value.toFixed(2) : "—",
-        " dKH",
-      ),
-    );
-    fragment.append(kh);
-
-    const containers = this._section("Verbrauchsbehälter");
-    for (const [label, item, unit] of [
-      ["Reagenz", this._data.containers.reagent, "ml"],
-      ["Abwasser", this._data.containers.waste, "ml"],
-    ]) {
-      if (item) containers.append(this._container(label, item.current, item.max, unit));
-    }
-    fragment.append(containers);
-    return fragment;
-  }
-
-  _container(label, current, max, unit) {
-    const wrapper = this._element("div", "container");
-    const values = this._element("div", "metric");
-    values.append(
-      this._element("span", "label", label),
+    const khTile = this._element("article", "tile kh-tile");
+    khTile.setAttribute("aria-label", "KH-Wert");
+    const reading = this._element("div", "temperature-reading");
+    reading.append(
       this._element(
         "span",
-        "value",
-        `${this._number(current)} / ${this._number(max)} ${unit}`,
+        "temperature-value",
+        Number.isFinite(value) ? value.toFixed(2) : "—",
       ),
+      this._element("span", "temperature-unit", "dKH"),
     );
-    wrapper.append(values);
+    khTile.append(reading);
+    grid.append(khTile);
 
-    if (Number.isFinite(current) && Number.isFinite(max) && max > 0) {
-      const progress = this._element("progress");
-      progress.max = max;
-      progress.value = Math.max(0, Math.min(current, max));
-      progress.setAttribute("aria-label", `${label}: ${this._number(current)} ${unit}`);
-      wrapper.append(progress);
+    const items = [
+      ["Reagenz", this._data.containers.reagent],
+      ["Abwasser", this._data.containers.waste],
+    ];
+    for (const [label, item] of items) {
+      if (item) {
+        grid.append(this._containerTile({ ...item, name: label }));
+      } else {
+        grid.append(
+          this._element("article", "tile muted", `${label}: keine Behälterdaten verfügbar.`),
+        );
+      }
     }
-    return wrapper;
+    return grid;
   }
 
   _number(value) {
@@ -445,13 +600,12 @@ class ReefmanagerCardBase extends HTMLElement {
   _render() {
     if (!this.shadowRoot || !this._config) return;
     const title = this._config.title || this._defaultTitle();
-    const showReefmanagerTiles =
-      this._deviceType() === "reefmanager" && this._data && !this._error;
+    const showDeviceTiles = this._data && !this._error;
     const card = this._element(
-      showReefmanagerTiles ? "div" : "article",
-      showReefmanagerTiles ? "reefmanager-layout" : "card",
+      showDeviceTiles ? "div" : "article",
+      showDeviceTiles ? "device-layout" : "card",
     );
-    if (showReefmanagerTiles) {
+    if (showDeviceTiles) {
       card.append(this._element("h1", "layout-title", title));
     } else {
       card.append(this._element("header", "", title));
@@ -484,7 +638,7 @@ class ReefmanagerCardBase extends HTMLElement {
         gap: 12px;
         grid-template-columns: repeat(auto-fit, minmax(min(100%, 110px), 1fr));
       }
-      .reefmanager-layout { display: block; }
+      .device-layout { display: block; }
       .layout-title { color: var(--secondary-text-color); font-size: 1rem; font-weight: 500; margin: 0 0 10px; }
       .tile {
         background: var(--ha-card-background, var(--card-background-color, white));
@@ -495,23 +649,23 @@ class ReefmanagerCardBase extends HTMLElement {
         padding: 14px 16px;
       }
       .temperature-tile { grid-column: 1 / -1; }
-      .tile-heading { align-items: center; display: flex; justify-content: space-between; }
-      .tile-label { color: var(--secondary-text-color); font-size: .9rem; }
-      .thermometer { color: var(--primary-color); font-size: 1.2rem; }
+      .kh-tile { grid-column: 1 / -1; }
       .temperature-reading { align-items: baseline; display: flex; gap: 4px; margin: 12px 0 2px; }
       .temperature-value { font-size: 1.7rem; font-weight: 400; }
       .temperature-unit { color: var(--secondary-text-color); font-size: .9rem; }
       .sparkline { display: block; height: 34px; margin-top: 6px; width: 100%; }
-      .sparkline polyline { fill: none; stroke: var(--success-color, #9bdc9b); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+      .sparkline line { stroke-linecap: round; }
       .history-error { color: var(--secondary-text-color); font-size: .75rem; margin-top: 6px; }
       .container-tile { align-items: center; display: flex; flex-direction: column; justify-content: center; }
-      .container-gauge { display: block; overflow: visible; width: min(100%, 160px); }
-      .gauge-track, .gauge-value { fill: none; stroke-linecap: butt; stroke-width: 10; }
+      .container-gauge { aspect-ratio: 1; display: block; height: auto; overflow: visible; width: min(100%, 84px); }
+      .gauge-track, .gauge-value { fill: none; stroke-linecap: round; stroke-width: 8; }
       .gauge-track { stroke: var(--disabled-color, #e8e8ec); }
-      .gauge-value { stroke: var(--success-color, #a9df89); }
-      .gauge-value.low { stroke: var(--warning-color, #f3d95b); }
-      .gauge-reading { fill: var(--primary-text-color); font-size: 13px; }
-      .gauge-label { font-size: .9rem; margin-top: -1px; text-align: center; }
+      .gauge-value { stroke: #B8E994; }
+      .gauge-value.medium { stroke: #FFF3B0; }
+      .gauge-value.low { stroke: #FFADAD; }
+      .gauge-reading { fill: var(--primary-text-color); font-size: 14px; font-weight: 500; }
+      .gauge-unit { fill: var(--secondary-text-color); font-size: 9px; }
+      .gauge-label { font-size: .9rem; margin-top: 3px; text-align: center; }
       .gauge-detail { color: var(--secondary-text-color); font-size: .75rem; margin-top: 3px; }
       .card {
         background: var(--ha-card-background, var(--card-background-color, white));
@@ -547,9 +701,6 @@ class ReefmanagerDiyCard extends ReefmanagerCardBase {
     return "Reefmanager";
   }
 
-  static get editorTag() {
-    return "reefmanager-diy-card-editor";
-  }
 }
 
 class MultimateDiyCard extends ReefmanagerCardBase {
@@ -565,104 +716,10 @@ class MultimateDiyCard extends ReefmanagerCardBase {
     return "Multimate";
   }
 
-  static get editorTag() {
-    return "multimate-diy-card-editor";
-  }
-}
-
-class ReefmanagerDiyCardEditor extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-  }
-
-  setConfig(config) {
-    this._config = { ...config };
-    this._render();
-  }
-
-  static get defaultHost() {
-    return REEFMANAGER_HOST;
-  }
-
-  static get defaultTitle() {
-    return "Reefmanager";
-  }
-
-  set hass(hass) {
-    this._hass = hass;
-    if (this._form) this._form.hass = hass;
-  }
-
-  _render() {
-    if (!this._config) return;
-    this._form = document.createElement("ha-form");
-    this._form.hass = this._hass;
-    this._form.data = {
-      host: String(this._config.host || this.constructor.defaultHost)
-        .trim()
-        .replace(/^https?:\/\//i, "")
-        .replace(/\/+$/, ""),
-      title: this._config.title || this.constructor.defaultTitle,
-      refresh_interval:
-        this._config.refresh_interval ?? DEFAULT_REFRESH_INTERVAL,
-    };
-    this._form.schema = [
-      { name: "host", selector: { text: {} } },
-      { name: "title", selector: { text: {} } },
-      {
-        name: "refresh_interval",
-        selector: {
-          number: {
-            min: MIN_REFRESH_INTERVAL,
-            max: MAX_REFRESH_INTERVAL,
-            step: 1,
-            unit_of_measurement: "s",
-            mode: "box",
-          },
-        },
-      },
-    ];
-    this._form.computeLabel = (schema) =>
-      ({
-        host: "IP-Adresse",
-        title: "Kartentitel",
-        refresh_interval: "Aktualisierungsintervall",
-      })[schema.name];
-    this._form.computeHelper = (schema) =>
-      ({
-        host: "Nur die IP-Adresse eingeben, ohne http://.",
-        refresh_interval: "Zwischen 5 Sekunden und 1 Stunde.",
-      })[schema.name];
-    this._form.addEventListener("value-changed", (event) => {
-      const config = { ...this._config, ...event.detail.value };
-      this._config = config;
-      this.dispatchEvent(
-        new CustomEvent("config-changed", {
-          detail: { config },
-          bubbles: true,
-          composed: true,
-        }),
-      );
-    });
-    this.shadowRoot.replaceChildren(this._form);
-  }
-}
-
-class MultimateDiyCardEditor extends ReefmanagerDiyCardEditor {
-  static get defaultHost() {
-    return MULTIMATE_HOST;
-  }
-
-  static get defaultTitle() {
-    return "Multimate";
-  }
 }
 
 customElements.define("reefmanager-diy-card", ReefmanagerDiyCard);
 customElements.define("multimate-diy-card", MultimateDiyCard);
-customElements.define("reefmanager-diy-card-editor", ReefmanagerDiyCardEditor);
-customElements.define("multimate-diy-card-editor", MultimateDiyCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push(
