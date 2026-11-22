@@ -10,7 +10,7 @@ Eine HACS-Custom-Lovelace-Karte für Reefmanager und Multimate. Die Karte liest 
 
 ## Zwei getrennte Karten
 
-Der visuelle Editor ist für beide Karten verfügbar. Er bietet Felder für die Geräteadresse und den optionalen Kartentitel. Die Adressen sind bereits mit den folgenden Standardwerten vorbelegt und können im Editor geändert werden.
+Beide Kartentypen werden separat im Karten-Auswahldialog registriert und unterstützen den visuellen Editor. Dort gibt es Felder für Geräteadresse und optionalen Kartentitel. Die Adressen sind mit den folgenden Standardwerten vorbelegt und können im Editor geändert werden.
 
 ### Reefmanager
 

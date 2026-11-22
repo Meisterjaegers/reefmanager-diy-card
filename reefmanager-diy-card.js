@@ -2,6 +2,37 @@ const REEFMANAGER_HOST = "http://192.168.178.91";
 const MULTIMATE_HOST = "http://192.168.178.92";
 
 class ReefmanagerCardBase extends HTMLElement {
+  static getConfigElement() {
+    return document.createElement(this.editorTag);
+  }
+
+  static getStubConfig() {
+    return {
+      host: this.defaultHost,
+      title: this.defaultTitle,
+    };
+  }
+
+  static getConfigForm() {
+    return {
+      schema: [
+        {
+          name: "host",
+          required: true,
+          default: this.defaultHost,
+          selector: { text: {} },
+        },
+        {
+          name: "title",
+          default: this.defaultTitle,
+          selector: { text: {} },
+        },
+      ],
+      computeLabel: (schema) =>
+        schema.name === "host" ? "Geräteadresse" : "Kartentitel",
+    };
+  }
+
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -42,14 +73,11 @@ class ReefmanagerCardBase extends HTMLElement {
   }
 
   getConfigElement() {
-    return document.createElement(this.constructor.editorTag);
+    return this.constructor.getConfigElement();
   }
 
   getStubConfig() {
-    return {
-      host: this._defaultHost(),
-      title: this._defaultTitle(),
-    };
+    return this.constructor.getStubConfig();
   }
 
   _deviceType() {
@@ -385,10 +413,12 @@ window.customCards.push(
     type: "reefmanager-diy-card",
     name: "Reefmanager DIY Card",
     description: "Zeigt Temperatur und Dosierbehälter des Reefmanagers.",
+    preview: false,
   },
   {
     type: "multimate-diy-card",
     name: "Multimate DIY Card",
     description: "Zeigt KH-Wert sowie Reagenz- und Abwasserstand.",
+    preview: false,
   },
 );
