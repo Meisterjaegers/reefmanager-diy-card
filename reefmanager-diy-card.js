@@ -1,5 +1,5 @@
-const REEFMANAGER_HOST = "http://192.168.178.91";
-const MULTIMATE_HOST = "http://192.168.178.92";
+const REEFMANAGER_HOST = "192.168.178.91";
+const MULTIMATE_HOST = "192.168.178.92";
 const DEFAULT_REFRESH_INTERVAL = 30;
 const MIN_REFRESH_INTERVAL = 5;
 const MAX_REFRESH_INTERVAL = 3600;
@@ -43,14 +43,15 @@ class ReefmanagerCardBase extends HTMLElement {
       ],
       computeLabel: (schema) =>
         ({
-          host: "Geräteadresse",
+          host: "IP-Adresse",
           title: "Kartentitel",
           refresh_interval: "Aktualisierungsintervall",
         })[schema.name],
       computeHelper: (schema) =>
-        schema.name === "refresh_interval"
-          ? "Zwischen 5 Sekunden und 1 Stunde."
-          : undefined,
+        ({
+          host: "Nur die IP-Adresse eingeben, ohne http://.",
+          refresh_interval: "Zwischen 5 Sekunden und 1 Stunde.",
+        })[schema.name],
     };
   }
 
@@ -59,8 +60,10 @@ class ReefmanagerCardBase extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._data = null;
     this._error = null;
+    this._historyError = null;
     this._loading = false;
     this._timer = null;
+    this._temperatureHistory = new Map();
   }
 
   setConfig(config) {
@@ -86,7 +89,7 @@ class ReefmanagerCardBase extends HTMLElement {
     }
     this._config = {
       ...config,
-      host: String(config.host || this._defaultHost()).replace(/\/+$/, ""),
+      host: this._normalizeHost(config.host || this._defaultHost()),
       refresh_interval: refreshInterval,
     };
     this._render();
@@ -135,6 +138,13 @@ class ReefmanagerCardBase extends HTMLElement {
     return this._deviceTitle();
   }
 
+  _normalizeHost(host) {
+    return String(host)
+      .trim()
+      .replace(/^https?:\/\//i, "")
+      .replace(/\/+$/, "");
+  }
+
   _startPolling() {
     window.clearInterval(this._timer);
     this._refresh();
@@ -145,7 +155,7 @@ class ReefmanagerCardBase extends HTMLElement {
   }
 
   async _fetchJson(path) {
-    const response = await fetch(`${this._config.host}${path}`, {
+    const response = await fetch(`http://${this._config.host}${path}`, {
       headers: { Accept: "application/json" },
     });
     if (!response.ok) {
@@ -158,14 +168,32 @@ class ReefmanagerCardBase extends HTMLElement {
     if (!this._config || this._loading) return;
     this._loading = true;
     this._error = null;
+    this._historyError = null;
     try {
-      const endpoints =
-        this._deviceType() === "reefmanager"
-          ? ["/api/temperature/status", "/api/containers"]
-          : ["/api/kh/status", "/api/containers"];
-      const [status, containers] = await Promise.all(
-        endpoints.map((path) => this._fetchJson(path)),
-      );
+      const isReefmanager = this._deviceType() === "reefmanager";
+      const historyRequest = isReefmanager
+        ? this._fetchTemperatureHistory()
+            .then((history) => ({ history }))
+            .catch((error) => ({
+              error: error instanceof Error ? error.message : String(error),
+            }))
+        : Promise.resolve({ history: null });
+      const requests = [
+        this._fetchJson(
+          isReefmanager ? "/api/temperature/status" : "/api/kh/status",
+        ),
+        this._fetchJson("/api/containers"),
+        historyRequest,
+      ];
+      const [status, containers, historyResult] = await Promise.all(requests);
+      if (isReefmanager && historyResult.history) {
+        const control = status.controls?.[0];
+        const key = String(control?.port ?? control?.name ?? "temperature");
+        this._temperatureHistory.set(key, historyResult.history);
+      } else if (isReefmanager && historyResult.error) {
+        this._temperatureHistory.clear();
+        this._historyError = historyResult.error;
+      }
       this._data = { status, containers };
     } catch (error) {
       this._error = error instanceof Error ? error.message : String(error);
@@ -197,44 +225,168 @@ class ReefmanagerCardBase extends HTMLElement {
     return row;
   }
 
+  async _fetchTemperatureHistory() {
+    const response = await fetch(
+      `http://${this._config.host}/api/temperature/history.bin`,
+      { headers: { Accept: "application/octet-stream" } },
+    );
+    if (!response.ok) {
+      throw new Error(`/api/temperature/history.bin: HTTP ${response.status}`);
+    }
+    return this._parseTemperatureHistory(await response.arrayBuffer());
+  }
+
+  _parseTemperatureHistory(buffer) {
+    const recordSize = 8;
+    if (buffer.byteLength % recordSize !== 0) {
+      throw new Error("Temperaturverlauf hat ein ungültiges Binärformat.");
+    }
+
+    const view = new DataView(buffer);
+    const history = [];
+    for (let offset = 0; offset < buffer.byteLength; offset += recordSize) {
+      const timestamp = view.getUint32(offset, true);
+      const temperature = view.getUint16(offset + 6, true);
+      if (timestamp === 0 || temperature === 0x8000) continue;
+      history.push({ timestamp, value: temperature / 100 });
+    }
+    history.sort((a, b) => a.timestamp - b.timestamp);
+    return history;
+  }
+
+  _temperatureTile(control) {
+    const tile = this._element("article", "tile temperature-tile");
+    const label = control.name || "Temperatur";
+    const value = Number.isFinite(control.currentTemp)
+      ? control.currentTemp.toFixed(2)
+      : "—";
+    const heading = this._element("div", "tile-heading");
+    heading.append(
+      this._element("span", "tile-label", label),
+      this._element("span", "thermometer", "♨"),
+    );
+    tile.append(heading);
+
+    const reading = this._element("div", "temperature-reading");
+    reading.append(
+      this._element("span", "temperature-value", value),
+      this._element("span", "temperature-unit", "°C"),
+    );
+    tile.append(reading, this._temperatureSparkline(control));
+    if (this._historyError) {
+      tile.append(
+        this._element(
+          "div",
+          "history-error",
+          `Temperaturverlauf nicht verfügbar: ${this._historyError}`,
+        ),
+      );
+    }
+    return tile;
+  }
+
+  _temperatureSparkline(control) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "sparkline");
+    svg.setAttribute("viewBox", "0 0 200 40");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "Temperaturverlauf aus der Gerätehistorie");
+
+    const key = String(control.port ?? control.name ?? "temperature");
+    const history = this._temperatureHistory.get(key) ?? [];
+    if (history.length === 0) return svg;
+    const values = history.map((point) => point.value);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+    const points = history
+      .map((point, index) => {
+        const x = (index / Math.max(history.length - 1, 1)) * 200;
+        const y = 36 - ((point.value - min) / range) * 32;
+        return `${x},${y}`;
+      })
+      .join(" ");
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    line.setAttribute("points", points);
+    svg.append(line);
+    return svg;
+  }
+
+  _containerTile(item) {
+    const current = item.current;
+    const max = item.max;
+    const percentage =
+      Number.isFinite(current) && Number.isFinite(max) && max > 0
+        ? Math.max(0, Math.min(1, current / max))
+        : null;
+    const label = item.name || `Behälter ${item.port}`;
+    const tile = this._element("article", "tile container-tile");
+    tile.setAttribute("aria-label", label);
+
+    const gauge = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    gauge.setAttribute("class", "container-gauge");
+    gauge.setAttribute("viewBox", "0 0 120 72");
+    gauge.setAttribute("role", "img");
+    gauge.setAttribute(
+      "aria-label",
+      percentage === null ? `${label}: kein Füllstand` : `${label}: ${Math.round(percentage * 100)} %`,
+    );
+
+    const track = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    track.setAttribute("class", "gauge-track");
+    track.setAttribute("d", "M 12 60 A 48 48 0 0 1 108 60");
+    gauge.append(track);
+
+    if (percentage !== null) {
+      const angle = Math.PI * (1 - percentage);
+      const x = 60 + 48 * Math.cos(angle);
+      const y = 60 - 48 * Math.sin(angle);
+      const arc = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      arc.setAttribute("class", `gauge-value${percentage <= 0.4 ? " low" : ""}`);
+      arc.setAttribute(
+        "d",
+        `M 12 60 A 48 48 0 ${percentage > 0.5 ? 1 : 0} 1 ${x} ${y}`,
+      );
+      gauge.append(arc);
+    }
+
+    const reading = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    reading.classList.add("gauge-reading");
+    reading.textContent = `${this._number(current)} ml`;
+    reading.setAttribute("x", "60");
+    reading.setAttribute("y", "57");
+    reading.setAttribute("text-anchor", "middle");
+    gauge.append(reading);
+    tile.append(gauge, this._element("div", "gauge-label", label));
+
+    if (Number.isFinite(item.days_left) && item.days_left >= 0) {
+      tile.append(
+        this._element("div", "gauge-detail", `${item.days_left.toFixed(1)} Tage`),
+      );
+    }
+    return tile;
+  }
+
   _reefmanagerContent() {
-    const fragment = document.createDocumentFragment();
-    const temperature = this._section("Temperatur");
+    const grid = this._element("div", "reefmanager-grid");
     const controls = this._data.status.controls ?? [];
     if (controls.length === 0) {
-      temperature.append(this._element("p", "muted", "Keine Temperaturdaten verfügbar."));
+      grid.append(this._temperatureTile({ name: "Temperatur" }));
     } else {
       for (const control of controls) {
-        temperature.append(
-          this._metric(
-            control.name || "Temperatur",
-            Number.isFinite(control.currentTemp)
-              ? control.currentTemp.toFixed(1)
-              : "—",
-            " °C",
-          ),
-        );
+        grid.append(this._temperatureTile(control));
       }
     }
-    fragment.append(temperature);
 
-    const containers = this._section("Dosierbehälter");
     const items = this._data.containers.containers ?? [];
     if (items.length === 0) {
-      containers.append(this._element("p", "muted", "Keine Behälterdaten verfügbar."));
+      grid.append(this._element("article", "tile muted", "Keine Behälterdaten verfügbar."));
     }
     for (const item of items) {
-      containers.append(
-        this._container(item.name || `Behälter ${item.port}`, item.current, item.max, "ml"),
-      );
-      if (Number.isFinite(item.days_left) && item.days_left >= 0) {
-        containers.append(
-          this._element("p", "detail", `${item.days_left.toFixed(1)} Tage verbleibend`),
-        );
-      }
+      grid.append(this._containerTile(item));
     }
-    fragment.append(containers);
-    return fragment;
+    return grid;
   }
 
   _multimateContent() {
@@ -293,8 +445,17 @@ class ReefmanagerCardBase extends HTMLElement {
   _render() {
     if (!this.shadowRoot || !this._config) return;
     const title = this._config.title || this._defaultTitle();
-    const card = this._element("article", "card");
-    card.append(this._element("header", "", title));
+    const showReefmanagerTiles =
+      this._deviceType() === "reefmanager" && this._data && !this._error;
+    const card = this._element(
+      showReefmanagerTiles ? "div" : "article",
+      showReefmanagerTiles ? "reefmanager-layout" : "card",
+    );
+    if (showReefmanagerTiles) {
+      card.append(this._element("h1", "layout-title", title));
+    } else {
+      card.append(this._element("header", "", title));
+    }
 
     if (this._error) {
       card.append(
@@ -318,6 +479,40 @@ class ReefmanagerCardBase extends HTMLElement {
     const style = document.createElement("style");
     style.textContent = `
       :host { display: block; color: var(--primary-text-color); }
+      .reefmanager-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 110px), 1fr));
+      }
+      .reefmanager-layout { display: block; }
+      .layout-title { color: var(--secondary-text-color); font-size: 1rem; font-weight: 500; margin: 0 0 10px; }
+      .tile {
+        background: var(--ha-card-background, var(--card-background-color, white));
+        border-radius: var(--ha-card-border-radius, 12px);
+        box-shadow: var(--ha-card-box-shadow, 0 2px 6px #0002);
+        box-sizing: border-box;
+        min-width: 0;
+        padding: 14px 16px;
+      }
+      .temperature-tile { grid-column: 1 / -1; }
+      .tile-heading { align-items: center; display: flex; justify-content: space-between; }
+      .tile-label { color: var(--secondary-text-color); font-size: .9rem; }
+      .thermometer { color: var(--primary-color); font-size: 1.2rem; }
+      .temperature-reading { align-items: baseline; display: flex; gap: 4px; margin: 12px 0 2px; }
+      .temperature-value { font-size: 1.7rem; font-weight: 400; }
+      .temperature-unit { color: var(--secondary-text-color); font-size: .9rem; }
+      .sparkline { display: block; height: 34px; margin-top: 6px; width: 100%; }
+      .sparkline polyline { fill: none; stroke: var(--success-color, #9bdc9b); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+      .history-error { color: var(--secondary-text-color); font-size: .75rem; margin-top: 6px; }
+      .container-tile { align-items: center; display: flex; flex-direction: column; justify-content: center; }
+      .container-gauge { display: block; overflow: visible; width: min(100%, 160px); }
+      .gauge-track, .gauge-value { fill: none; stroke-linecap: butt; stroke-width: 10; }
+      .gauge-track { stroke: var(--disabled-color, #e8e8ec); }
+      .gauge-value { stroke: var(--success-color, #a9df89); }
+      .gauge-value.low { stroke: var(--warning-color, #f3d95b); }
+      .gauge-reading { fill: var(--primary-text-color); font-size: 13px; }
+      .gauge-label { font-size: .9rem; margin-top: -1px; text-align: center; }
+      .gauge-detail { color: var(--secondary-text-color); font-size: .75rem; margin-top: 3px; }
       .card {
         background: var(--ha-card-background, var(--card-background-color, white));
         border-radius: var(--ha-card-border-radius, 12px);
@@ -404,7 +599,10 @@ class ReefmanagerDiyCardEditor extends HTMLElement {
     this._form = document.createElement("ha-form");
     this._form.hass = this._hass;
     this._form.data = {
-      host: this._config.host || this.constructor.defaultHost,
+      host: String(this._config.host || this.constructor.defaultHost)
+        .trim()
+        .replace(/^https?:\/\//i, "")
+        .replace(/\/+$/, ""),
       title: this._config.title || this.constructor.defaultTitle,
       refresh_interval:
         this._config.refresh_interval ?? DEFAULT_REFRESH_INTERVAL,
@@ -427,14 +625,15 @@ class ReefmanagerDiyCardEditor extends HTMLElement {
     ];
     this._form.computeLabel = (schema) =>
       ({
-        host: "Geräteadresse",
+        host: "IP-Adresse",
         title: "Kartentitel",
         refresh_interval: "Aktualisierungsintervall",
       })[schema.name];
     this._form.computeHelper = (schema) =>
-      schema.name === "refresh_interval"
-        ? "Zwischen 5 Sekunden und 1 Stunde."
-        : undefined;
+      ({
+        host: "Nur die IP-Adresse eingeben, ohne http://.",
+        refresh_interval: "Zwischen 5 Sekunden und 1 Stunde.",
+      })[schema.name];
     this._form.addEventListener("value-changed", (event) => {
       const config = { ...this._config, ...event.detail.value };
       this._config = config;
