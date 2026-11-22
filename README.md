@@ -17,7 +17,7 @@ Falls HACS die Ressource nicht automatisch registriert, füge unter **Einstellun
 
 ## Reefmanager-Karte
 
-Die Reefmanager-Karte zeigt die aktuelle Temperatur und den Temperaturverlauf sowie jeden Dosierbehälter als eigene Kachel. Der Verlauf wird über `/api/temperature/history.bin` geladen und standardmäßig auf die letzten sieben Tage begrenzt.
+Die Reefmanager-Karte zeigt die aktuelle Temperatur, den Temperaturverlauf sowie die Durchschnittstemperatur der letzten 24 Stunden und sieben Tage. Der Verlauf wird über `/api/temperature/history.bin` geladen und standardmäßig auf die letzten sieben Tage begrenzt. Der Titel „Reefmanager“ verlinkt auf die Weboberfläche des Geräts.
 
 Standard-IP-Adresse: `192.168.178.91`
 
@@ -28,7 +28,7 @@ refresh_interval: 30
 history_days: 7
 ```
 
-Die Verlaufskurve verwendet standardmäßig diese Temperatur-Farbpunkte. Zwischen den Farben wird weich interpoliert:
+Die Verlaufskurve verwendet standardmäßig diese Temperatur-Farbpunkte. Zwischen den Farben wird weich interpoliert. Die Farbwerte sind im visuellen Editor in der einklappbaren Gruppe **Temperatur-Farbverlauf** konfigurierbar:
 
 | Temperatur | Farbe |
 |---:|:---|
@@ -38,7 +38,7 @@ Die Verlaufskurve verwendet standardmäßig diese Temperatur-Farbpunkte. Zwische
 | 25,5 °C | `#FFF3B0` |
 | 27 °C | `#FFADAD` |
 
-Die fünf Temperaturwerte und zugehörigen Farben lassen sich im visuellen Editor oder per YAML anpassen. Temperaturwerte müssen aufsteigend sortiert sein; Farben müssen im Format `#RRGGBB` angegeben werden. Beispiel:
+Temperaturwerte müssen aufsteigend sortiert sein; Farben müssen im Format `#RRGGBB` angegeben werden. Die YAML-Optionen heißen `temperature_gradient_1_value` bis `temperature_gradient_5_value` und `temperature_gradient_1_color` bis `temperature_gradient_5_color`.
 
 ```yaml
 type: custom:reefmanager-diy-card
@@ -58,7 +58,7 @@ Die Füllstandsringe der Dosierbehälter zeigen den aktuellen Inhalt und färben
 
 ## Multimate-Karte
 
-Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt den letzten KH-Messwert und den Verlauf aus `/api/kh/status` und `/api/kh/history` sowie Reagenz- und Abwasserstand als eigene Füllstandsringe aus `/api/containers`. Die KH-Kurve interpoliert weich zwischen diesen Farbwerten:
+Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt den letzten KH-Messwert, den Verlauf sowie die KH-Durchschnitte der letzten 24 Stunden und sieben Tage aus `/api/kh/status` und `/api/kh/history`. Reagenz- und Abwasserstand werden als Füllstandsringe aus `/api/containers` angezeigt. Der Titel „Multimate“ verlinkt auf die Weboberfläche des Geräts. Die KH-Kurve interpoliert weich zwischen diesen Farbwerten:
 
 | KH-Wert | Farbe |
 |---:|:---|
@@ -68,7 +68,23 @@ Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Si
 | 8 | `#FFF3B0` |
 | 8,5 | `#FFADAD` |
 
-Für die Behälterringe gilt dieselbe Farbskala wie beim Reefmanager: ab 50 % grün, unter 50 % gelb und unter 25 % rot.
+Der Reagenzring verwendet dieselbe Farbskala wie beim Reefmanager: ab 50 % grün, unter 50 % gelb und unter 25 % rot. Beim Abwasserbehälter bedeutet ein steigender Füllstand ein steigendes Risiko: bis einschließlich 50 % grün, über 50 % bis unter 75 % gelb und ab 75 % rot.
+
+Die KH-Farbpunkte sind im visuellen Editor in der einklappbaren Gruppe **KH-Farbverlauf** einstellbar. Die fünf Werte müssen aufsteigend sortiert sein; Farben müssen im Format `#RRGGBB` angegeben werden. Per YAML heißen die Optionen `kh_gradient_1_value` bis `kh_gradient_5_value` und `kh_gradient_1_color` bis `kh_gradient_5_color`:
+
+```yaml
+type: custom:multimate-diy-card
+kh_gradient_1_value: 6.5
+kh_gradient_1_color: "#A2D2FF"
+kh_gradient_2_value: 7
+kh_gradient_2_color: "#A8E6CF"
+kh_gradient_3_value: 7.5
+kh_gradient_3_color: "#B8E994"
+kh_gradient_4_value: 8
+kh_gradient_4_color: "#FFF3B0"
+kh_gradient_5_value: 8.5
+kh_gradient_5_color: "#FFADAD"
+```
 
 Standard-IP-Adresse: `192.168.178.92`
 
@@ -80,7 +96,7 @@ refresh_interval: 30
 
 ## Konfiguration
 
-Beide Karten unterstützen den visuellen Editor und YAML. Dort kannst du die IP-Adresse, den Kartentitel und das Aktualisierungsintervall festlegen. Bei der Reefmanager-Karte sind außerdem die Anzahl der angezeigten Verlaufstage und die Temperatur-Farbpunkte einstellbar. Mit `refresh_interval: 0` werden die Werte einmal beim Öffnen der Karte geladen und danach nicht automatisch aktualisiert.
+Beide Karten unterstützen den visuellen Editor und YAML. Dort kannst du die IP-Adresse, den Kartentitel und das Aktualisierungsintervall festlegen. Bei der Reefmanager-Karte sind außerdem die Anzahl der angezeigten Verlaufstage und die Temperatur-Farbpunkte einstellbar; bei Multimate lässt sich der KH-Farbverlauf anpassen. Beide Farbverläufe sind im visuellen Editor einklappbar gruppiert. Mit `refresh_interval: 0` werden die Werte einmal beim Öffnen der Karte geladen und danach nicht automatisch aktualisiert.
 
 | Option | Karten | Standard | Werte |
 |---|---|---:|---|
@@ -90,5 +106,7 @@ Beide Karten unterstützen den visuellen Editor und YAML. Dort kannst du die IP-
 | `history_days` | Reefmanager | `7` Tage | 1–7 Tage |
 | `temperature_gradient_1_value` bis `temperature_gradient_5_value` | Reefmanager | siehe Farbskala oben | aufsteigende Temperaturwerte in °C |
 | `temperature_gradient_1_color` bis `temperature_gradient_5_color` | Reefmanager | siehe Farbskala oben | Farben im Format `#RRGGBB` |
+| `kh_gradient_1_value` bis `kh_gradient_5_value` | Multimate | siehe KH-Farbskala oben | aufsteigende KH-Werte von 0 bis 20 dKH |
+| `kh_gradient_1_color` bis `kh_gradient_5_color` | Multimate | siehe KH-Farbskala oben | Farben im Format `#RRGGBB` |
 
 Die Karte ergänzt `http://` automatisch. Der Browser, in dem Home Assistant läuft, muss die Geräte-IP erreichen können. Die Geräte-API muss außerdem Anfragen von Home Assistant erlauben (CORS). Bei einem per HTTPS aufgerufenen Home Assistant kann der Browser HTTP-Anfragen an die Geräte als Mixed Content blockieren.

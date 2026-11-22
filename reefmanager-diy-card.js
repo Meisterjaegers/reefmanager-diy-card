@@ -21,6 +21,41 @@ const DEFAULT_KH_GRADIENT = [
   { value: 8.5, color: "#FFADAD" },
 ];
 
+function gradientFormSchema(prefix, gradient, unit, min, max) {
+  return gradient.flatMap((stop, index) => {
+    const point = index + 1;
+    return [
+      {
+        name: `${prefix}_${point}_value`,
+        default: stop.value,
+        selector: {
+          number: {
+            min,
+            max,
+            step: 0.1,
+            unit_of_measurement: unit,
+            mode: "box",
+          },
+        },
+      },
+      {
+        name: `${prefix}_${point}_color`,
+        default: stop.color,
+        selector: { text: {} },
+      },
+    ];
+  });
+}
+
+function gradientFormLabels(prefix, gradient, measure) {
+  return Object.fromEntries(
+    gradient.flatMap((_, index) => [
+      [`${prefix}_${index + 1}_value`, `${measure} Farbpunkt ${index + 1}: Wert`],
+      [`${prefix}_${index + 1}_color`, `${measure} Farbpunkt ${index + 1}: Farbe (#RRGGBB)`],
+    ]),
+  );
+}
+
 class ReefmanagerCardBase extends HTMLElement {
   static getStubConfig() {
     const config = {
@@ -31,12 +66,16 @@ class ReefmanagerCardBase extends HTMLElement {
         ? { history_days: DEFAULT_HISTORY_DAYS }
         : {}),
     };
-    if (this.device !== "multimate") {
-      DEFAULT_TEMPERATURE_GRADIENT.forEach((stop, index) => {
-        config[`temperature_gradient_${index + 1}_value`] = stop.value;
-        config[`temperature_gradient_${index + 1}_color`] = stop.color;
-      });
-    }
+    const gradient =
+      this.device === "multimate"
+        ? DEFAULT_KH_GRADIENT
+        : DEFAULT_TEMPERATURE_GRADIENT;
+    const prefix =
+      this.device === "multimate" ? "kh_gradient" : "temperature_gradient";
+    gradient.forEach((stop, index) => {
+      config[`${prefix}_${index + 1}_value`] = stop.value;
+      config[`${prefix}_${index + 1}_color`] = stop.color;
+    });
     return config;
   }
 
@@ -67,7 +106,14 @@ class ReefmanagerCardBase extends HTMLElement {
         },
       },
     ];
-    if (this.device !== "multimate") {
+    const isMultimate = this.device === "multimate";
+    const gradient = isMultimate
+      ? DEFAULT_KH_GRADIENT
+      : DEFAULT_TEMPERATURE_GRADIENT;
+    const gradientPrefix = isMultimate
+      ? "kh_gradient"
+      : "temperature_gradient";
+    if (!isMultimate) {
       schema.push({
         name: "history_days",
         default: DEFAULT_HISTORY_DAYS,
@@ -81,30 +127,21 @@ class ReefmanagerCardBase extends HTMLElement {
           },
         },
       });
-      DEFAULT_TEMPERATURE_GRADIENT.forEach((stop, index) => {
-        const point = index + 1;
-        schema.push(
-          {
-            name: `temperature_gradient_${point}_value`,
-            default: stop.value,
-            selector: {
-              number: {
-                min: -10,
-                max: 60,
-                step: 0.1,
-                unit_of_measurement: "°C",
-                mode: "box",
-              },
-            },
-          },
-          {
-            name: `temperature_gradient_${point}_color`,
-            default: stop.color,
-            selector: { text: {} },
-          },
-        );
-      });
     }
+    schema.push({
+      type: "expandable",
+      name: `${gradientPrefix}_group`,
+      title: isMultimate ? "KH-Farbverlauf" : "Temperatur-Farbverlauf",
+      expanded: false,
+      flatten: true,
+      schema: gradientFormSchema(
+        gradientPrefix,
+        gradient,
+        isMultimate ? "dKH" : "°C",
+        isMultimate ? 0 : -10,
+        isMultimate ? 20 : 60,
+      ),
+    });
 
     return {
       schema,
@@ -114,32 +151,27 @@ class ReefmanagerCardBase extends HTMLElement {
           title: "Kartentitel",
           refresh_interval: "Aktualisierungsintervall",
           history_days: "Temperaturhistorie (Tage)",
-          ...Object.fromEntries(
-            DEFAULT_TEMPERATURE_GRADIENT.flatMap((_, index) => [
-              [
-                `temperature_gradient_${index + 1}_value`,
-                `Farbpunkt ${index + 1}: Temperatur`,
-              ],
-              [
-                `temperature_gradient_${index + 1}_color`,
-                `Farbpunkt ${index + 1}: Farbe (#RRGGBB)`,
-              ],
-            ]),
+          ...gradientFormLabels(
+            gradientPrefix,
+            gradient,
+            isMultimate ? "KH" : "Temperatur",
           ),
         })[schema.name],
       computeHelper: (schema) =>
-        ({
-          host: "Nur die IP-Adresse eingeben, ohne http://.",
-          refresh_interval:
-            "0 lädt die Werte einmal beim Öffnen der Karte; 5 bis 3600 aktualisiert regelmäßig.",
-          history_days: "Zeigt die Messwerte der letzten 1 bis 7 Tage.",
-          ...Object.fromEntries(
-            DEFAULT_TEMPERATURE_GRADIENT.map((_, index) => [
-              `temperature_gradient_${index + 1}_value`,
-              "Die Temperaturpunkte müssen aufsteigend sortiert sein.",
-            ]),
-          ),
-        })[schema.name],
+        schema.name === `${gradientPrefix}_group`
+          ? "Farbpunkte müssen aufsteigend sortiert sein; Farben im Format #RRGGBB."
+          : ({
+              host: "Nur die IP-Adresse eingeben, ohne http://.",
+              refresh_interval:
+                "0 lädt die Werte einmal beim Öffnen der Karte; 5 bis 3600 aktualisiert regelmäßig.",
+              history_days: "Zeigt die Messwerte der letzten 1 bis 7 Tage.",
+              ...Object.fromEntries(
+                gradient.map((_, index) => [
+                  `${gradientPrefix}_${index + 1}_value`,
+                  "Die Farbpunkt-Werte müssen aufsteigend sortiert sein.",
+                ]),
+              ),
+            })[schema.name],
     };
   }
 
@@ -171,6 +203,8 @@ class ReefmanagerCardBase extends HTMLElement {
       this._device === "reefmanager"
         ? this._getTemperatureGradient(config)
         : undefined;
+    const khGradient =
+      this._device === "multimate" ? this._getKhGradient(config) : undefined;
     if (
       typeof refreshInterval !== "number" ||
       !Number.isFinite(refreshInterval) ||
@@ -199,6 +233,7 @@ class ReefmanagerCardBase extends HTMLElement {
       ...(this._device === "reefmanager" ? { history_days: historyDays } : {}),
     };
     if (temperatureGradient) this._temperatureGradient = temperatureGradient;
+    if (khGradient) this._khGradient = khGradient;
     this._render();
     if (this.isConnected) this._startPolling();
   }
@@ -220,26 +255,47 @@ class ReefmanagerCardBase extends HTMLElement {
   }
 
   _getTemperatureGradient(config) {
-    const gradient = DEFAULT_TEMPERATURE_GRADIENT.map((stop, index) => ({
+    return this._getGradient(
+      config,
+      "temperature_gradient",
+      DEFAULT_TEMPERATURE_GRADIENT,
+      -10,
+      60,
+      "Temperatur",
+    );
+  }
+
+  _getKhGradient(config) {
+    return this._getGradient(
+      config,
+      "kh_gradient",
+      DEFAULT_KH_GRADIENT,
+      0,
+      20,
+      "KH",
+    );
+  }
+
+  _getGradient(config, prefix, defaults, min, max, label) {
+    const gradient = defaults.map((stop, index) => ({
       value:
-        config[`temperature_gradient_${index + 1}_value`] ?? stop.value,
-      color:
-        config[`temperature_gradient_${index + 1}_color`] ?? stop.color,
+        config[`${prefix}_${index + 1}_value`] ?? stop.value,
+      color: config[`${prefix}_${index + 1}_color`] ?? stop.color,
     }));
     if (
       gradient.some(
         (stop, index) =>
           typeof stop.value !== "number" ||
           !Number.isFinite(stop.value) ||
-          stop.value < -10 ||
-          stop.value > 60 ||
+          stop.value < min ||
+          stop.value > max ||
           typeof stop.color !== "string" ||
           !/^#[0-9a-f]{6}$/i.test(stop.color) ||
           (index > 0 && stop.value <= gradient[index - 1].value),
       )
     ) {
       throw new Error(
-        "Die Temperatur-Farbpunkte müssen gültige Hex-Farben haben und aufsteigend sortiert sein.",
+        `Die ${label}-Farbpunkte müssen gültige Hex-Farben haben und zwischen ${min} und ${max} aufsteigend sortiert sein.`,
       );
     }
     return gradient;
@@ -400,6 +456,7 @@ class ReefmanagerCardBase extends HTMLElement {
     const value = Number.isFinite(control.currentTemp)
       ? control.currentTemp.toFixed(2)
       : "—";
+    const key = String(control.port ?? control.name ?? "temperature");
     const reading = this._element("div", "temperature-reading");
     reading.append(
       this._element("span", "temperature-value", value),
@@ -408,6 +465,10 @@ class ReefmanagerCardBase extends HTMLElement {
     tile.append(
       this._sectionLabel("Temperatur"),
       reading,
+      this._historyAverages(
+        this._temperatureHistory.get(key) ?? [],
+        "°C",
+      ),
       this._temperatureSparkline(control),
     );
     if (this._historyError) {
@@ -442,9 +503,42 @@ class ReefmanagerCardBase extends HTMLElement {
   _khSparkline() {
     return this._historySparkline(
       this._khHistory,
-      DEFAULT_KH_GRADIENT,
+      this._khGradient ?? DEFAULT_KH_GRADIENT,
       "KH-Verlauf",
     );
+  }
+
+  _historyAverages(history, unit) {
+    const now = Date.now() / 1000;
+    const averageFor = (hours) => {
+      const start = now - hours * 60 * 60;
+      const values = history
+        .filter(
+          (point) =>
+            point.timestamp >= start &&
+            point.timestamp <= now &&
+            Number.isFinite(point.value),
+        )
+        .map((point) => point.value);
+      return values.length
+        ? values.reduce((sum, value) => sum + value, 0) / values.length
+        : null;
+    };
+    const averages = this._element("div", "history-averages");
+    for (const [label, hours] of [
+      ["Ø 24 Stunden", 24],
+      ["Ø 7 Tage", 24 * 7],
+    ]) {
+      const average = averageFor(hours);
+      averages.append(
+        this._element(
+          "span",
+          "history-average",
+          `${label}: ${average === null ? "—" : `${average.toFixed(2)} ${unit}`}`,
+        ),
+      );
+    }
+    return averages;
   }
 
   _sectionLabel(label) {
@@ -528,7 +622,8 @@ class ReefmanagerCardBase extends HTMLElement {
         ? Math.max(0, Math.min(1, current / max))
         : null;
     const label = item.name || `Behälter ${item.port}`;
-    const tile = this._element("article", "tile container-tile");
+    const isWasteContainer = label === "Abwasser";
+    const tile = this._element("article", "container-tile");
     tile.setAttribute("aria-label", label);
 
     const gauge = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -550,9 +645,20 @@ class ReefmanagerCardBase extends HTMLElement {
 
     if (percentage !== null) {
       const arc = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      const colorClass = isWasteContainer
+        ? percentage >= 0.75
+          ? " low"
+          : percentage > 0.5
+            ? " medium"
+            : ""
+        : percentage < 0.25
+          ? " low"
+          : percentage < 0.5
+            ? " medium"
+            : "";
       arc.setAttribute(
         "class",
-        `gauge-value${percentage < 0.25 ? " low" : percentage < 0.5 ? " medium" : ""}`,
+        `gauge-value${colorClass}`,
       );
       arc.setAttribute("cx", "50");
       arc.setAttribute("cy", "50");
@@ -592,6 +698,19 @@ class ReefmanagerCardBase extends HTMLElement {
     return tile;
   }
 
+  _containersTile(items, emptyMessage) {
+    const tile = this._element("article", "tile containers-group");
+    tile.append(this._sectionLabel("Verbrauchsbehälter"));
+    const grid = this._element("div", "container-group-grid");
+    if (items.length === 0) {
+      grid.append(this._element("div", "muted", emptyMessage));
+    } else {
+      grid.append(...items);
+    }
+    tile.append(grid);
+    return tile;
+  }
+
   _reefmanagerContent() {
     const grid = this._element("div", "reefmanager-grid");
     const controls = this._data.status.controls ?? [];
@@ -602,15 +721,13 @@ class ReefmanagerCardBase extends HTMLElement {
         grid.append(this._temperatureTile(control));
       }
     }
-
     const items = this._data.containers.containers ?? [];
-    grid.append(this._sectionLabel("Verbrauchsbehälter"));
-    if (items.length === 0) {
-      grid.append(this._element("article", "tile muted", "Keine Behälterdaten verfügbar."));
-    }
-    for (const item of items) {
-      grid.append(this._containerTile(item));
-    }
+    grid.append(
+      this._containersTile(
+        items.map((item) => this._containerTile(item)),
+        "Keine Behälterdaten verfügbar.",
+      ),
+    );
     return grid;
   }
 
@@ -631,6 +748,7 @@ class ReefmanagerCardBase extends HTMLElement {
     khTile.append(
       this._sectionLabel("KH"),
       reading,
+      this._historyAverages(this._khHistory, "dKH"),
       this._khSparkline(),
     );
     if (this._historyError) {
@@ -644,20 +762,24 @@ class ReefmanagerCardBase extends HTMLElement {
     }
     grid.append(khTile);
 
-    grid.append(this._sectionLabel("Verbrauchsbehälter"));
     const items = [
       ["Reagenz", this._data.containers.reagent],
       ["Abwasser", this._data.containers.waste],
     ];
-    for (const [label, item] of items) {
-      if (item) {
-        grid.append(this._containerTile({ ...item, name: label }));
-      } else {
-        grid.append(
-          this._element("article", "tile muted", `${label}: keine Behälterdaten verfügbar.`),
-        );
-      }
-    }
+    grid.append(
+      this._containersTile(
+        items.map(([label, item]) =>
+          item
+            ? this._containerTile({ ...item, name: label })
+            : this._element(
+                "div",
+                "muted",
+                `${label}: keine Behälterdaten verfügbar.`,
+              ),
+        ),
+        "Keine Behälterdaten verfügbar.",
+      ),
+    );
     return grid;
   }
 
@@ -665,6 +787,14 @@ class ReefmanagerCardBase extends HTMLElement {
     return Number.isFinite(value)
       ? value.toLocaleString(undefined, { maximumFractionDigits: 1 })
       : "—";
+  }
+
+  _deviceTitleLink(title, className) {
+    const link = this._element("a", className, title);
+    link.href = `http://${this._config.host}`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    return link;
   }
 
   _render() {
@@ -676,9 +806,13 @@ class ReefmanagerCardBase extends HTMLElement {
       showDeviceTiles ? "device-layout" : "card",
     );
     if (showDeviceTiles) {
-      card.append(this._element("h1", "layout-title", title));
+      const heading = this._element("h1", "layout-title");
+      heading.append(this._deviceTitleLink(title, "card-title-link"));
+      card.append(heading);
     } else {
-      card.append(this._element("header", "", title));
+      const header = this._element("header");
+      header.append(this._deviceTitleLink(title, "card-title-link"));
+      card.append(header);
     }
 
     if (this._error) {
@@ -710,6 +844,8 @@ class ReefmanagerCardBase extends HTMLElement {
       }
       .device-layout { display: block; }
       .layout-title { color: var(--secondary-text-color); font-size: 1rem; font-weight: 500; margin: 0 0 10px; }
+      .layout-title .card-title-link, header .card-title-link { color: inherit; text-decoration: none; }
+      .layout-title .card-title-link:hover, header .card-title-link:hover { text-decoration: underline; }
       .tile {
         background: var(--ha-card-background, var(--card-background-color, white));
         border-radius: var(--ha-card-border-radius, 12px);
@@ -727,8 +863,11 @@ class ReefmanagerCardBase extends HTMLElement {
       .temperature-unit { color: var(--secondary-text-color); font-size: .9rem; }
       .sparkline { display: block; height: 34px; margin-top: 6px; width: 100%; }
       .sparkline line { stroke-linecap: round; }
+      .history-averages { color: var(--secondary-text-color); display: flex; flex-wrap: wrap; font-size: .75rem; gap: 4px 16px; margin-top: 4px; }
       .history-error { color: var(--secondary-text-color); font-size: .75rem; margin-top: 6px; }
-      .container-tile { align-items: center; display: flex; flex-direction: column; justify-content: center; }
+      .containers-group { grid-column: 1 / -1; }
+      .container-group-grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 110px), 1fr)); }
+      .container-tile { align-items: center; display: flex; flex-direction: column; justify-content: center; padding: 6px; }
       .container-gauge { aspect-ratio: 1; display: block; height: auto; overflow: visible; width: min(100%, 84px); }
       .gauge-track, .gauge-value { fill: none; stroke-linecap: round; stroke-width: 8; }
       .gauge-track { stroke: var(--disabled-color, #e8e8ec); }
