@@ -1,15 +1,15 @@
 const REEFMANAGER_HOST = "http://192.168.178.91";
 const MULTIMATE_HOST = "http://192.168.178.92";
+const DEFAULT_REFRESH_INTERVAL = 30;
+const MIN_REFRESH_INTERVAL = 5;
+const MAX_REFRESH_INTERVAL = 3600;
 
 class ReefmanagerCardBase extends HTMLElement {
-  static getConfigElement() {
-    return document.createElement(this.editorTag);
-  }
-
   static getStubConfig() {
     return {
       host: this.defaultHost,
       title: this.defaultTitle,
+      refresh_interval: DEFAULT_REFRESH_INTERVAL,
     };
   }
 
@@ -27,9 +27,30 @@ class ReefmanagerCardBase extends HTMLElement {
           default: this.defaultTitle,
           selector: { text: {} },
         },
+        {
+          name: "refresh_interval",
+          default: DEFAULT_REFRESH_INTERVAL,
+          selector: {
+            number: {
+              min: MIN_REFRESH_INTERVAL,
+              max: MAX_REFRESH_INTERVAL,
+              step: 1,
+              unit_of_measurement: "s",
+              mode: "box",
+            },
+          },
+        },
       ],
       computeLabel: (schema) =>
-        schema.name === "host" ? "Geräteadresse" : "Kartentitel",
+        ({
+          host: "Geräteadresse",
+          title: "Kartentitel",
+          refresh_interval: "Aktualisierungsintervall",
+        })[schema.name],
+      computeHelper: (schema) =>
+        schema.name === "refresh_interval"
+          ? "Zwischen 5 Sekunden und 1 Stunde."
+          : undefined,
     };
   }
 
@@ -52,9 +73,21 @@ class ReefmanagerCardBase extends HTMLElement {
       config.device === "multimate"
         ? "multimate"
         : this.constructor.device;
+    const refreshInterval = config.refresh_interval ?? DEFAULT_REFRESH_INTERVAL;
+    if (
+      typeof refreshInterval !== "number" ||
+      !Number.isFinite(refreshInterval) ||
+      refreshInterval < MIN_REFRESH_INTERVAL ||
+      refreshInterval > MAX_REFRESH_INTERVAL
+    ) {
+      throw new Error(
+        `refresh_interval muss zwischen ${MIN_REFRESH_INTERVAL} und ${MAX_REFRESH_INTERVAL} Sekunden liegen.`,
+      );
+    }
     this._config = {
       ...config,
       host: String(config.host || this._defaultHost()).replace(/\/+$/, ""),
+      refresh_interval: refreshInterval,
     };
     this._render();
     if (this.isConnected) this._startPolling();
@@ -73,7 +106,7 @@ class ReefmanagerCardBase extends HTMLElement {
   }
 
   getConfigElement() {
-    return this.constructor.getConfigElement();
+    return document.createElement(this.constructor.editorTag);
   }
 
   getStubConfig() {
@@ -105,7 +138,10 @@ class ReefmanagerCardBase extends HTMLElement {
   _startPolling() {
     window.clearInterval(this._timer);
     this._refresh();
-    this._timer = window.setInterval(() => this._refresh(), 30_000);
+    this._timer = window.setInterval(
+      () => this._refresh(),
+      this._config.refresh_interval * 1000,
+    );
   }
 
   async _fetchJson(path) {
@@ -370,13 +406,35 @@ class ReefmanagerDiyCardEditor extends HTMLElement {
     this._form.data = {
       host: this._config.host || this.constructor.defaultHost,
       title: this._config.title || this.constructor.defaultTitle,
+      refresh_interval:
+        this._config.refresh_interval ?? DEFAULT_REFRESH_INTERVAL,
     };
     this._form.schema = [
       { name: "host", selector: { text: {} } },
       { name: "title", selector: { text: {} } },
+      {
+        name: "refresh_interval",
+        selector: {
+          number: {
+            min: MIN_REFRESH_INTERVAL,
+            max: MAX_REFRESH_INTERVAL,
+            step: 1,
+            unit_of_measurement: "s",
+            mode: "box",
+          },
+        },
+      },
     ];
     this._form.computeLabel = (schema) =>
-      schema.name === "host" ? "Geräteadresse" : "Kartentitel";
+      ({
+        host: "Geräteadresse",
+        title: "Kartentitel",
+        refresh_interval: "Aktualisierungsintervall",
+      })[schema.name];
+    this._form.computeHelper = (schema) =>
+      schema.name === "refresh_interval"
+        ? "Zwischen 5 Sekunden und 1 Stunde."
+        : undefined;
     this._form.addEventListener("value-changed", (event) => {
       const config = { ...this._config, ...event.detail.value };
       this._config = config;

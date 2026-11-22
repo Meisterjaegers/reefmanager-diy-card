@@ -10,7 +10,7 @@ Eine HACS-Custom-Lovelace-Karte für Reefmanager und Multimate. Die Karte liest 
 
 ## Zwei getrennte Karten
 
-Beide Kartentypen werden separat im Karten-Auswahldialog registriert und unterstützen den visuellen Editor. Dort gibt es Felder für Geräteadresse und optionalen Kartentitel. Die Adressen sind mit den folgenden Standardwerten vorbelegt und können im Editor geändert werden.
+Beide Kartentypen werden separat im Karten-Auswahldialog registriert und unterstützen den visuellen Editor. Dort lassen sich Geräteadresse, optionaler Kartentitel und Aktualisierungsintervall einstellen. Die Geräteadressen sind mit den folgenden Standardwerten vorbelegt.
 
 ### Reefmanager
 
@@ -30,4 +30,11 @@ type: custom:multimate-diy-card
 host: http://192.168.178.92
 ```
 
-In YAML können `host` und `title` angepasst werden. Wird `host` weggelassen, verwendet die jeweilige Karte ihre Standardadresse. Die Daten werden alle 30 Sekunden aktualisiert. Der Browser muss die Geräte-IP erreichen können. Falls die Geräte-API keine Cross-Origin-Anfragen (CORS) von Home Assistant erlaubt oder Home Assistant per HTTPS auf ein Gerät per HTTP zugreift (Mixed Content), blockiert der Browser den Abruf. In diesem Fall müssen die Geräte entsprechend konfiguriert oder über einen passenden HTTPS-/CORS-fähigen Proxy erreichbar gemacht werden.
+In YAML können `host`, `title` und `refresh_interval` angepasst werden. Das Aktualisierungsintervall wird in Sekunden angegeben, ist standardmäßig `30` und darf zwischen `5` und `3600` Sekunden liegen. Beispiel:
+
+```yaml
+type: custom:reefmanager-diy-card
+refresh_interval: 60
+```
+
+Wird `host` weggelassen, verwendet die jeweilige Karte ihre Standardadresse. Der Browser muss die Geräte-IP erreichen können. Falls die Geräte-API keine Cross-Origin-Anfragen (CORS) von Home Assistant erlaubt oder Home Assistant per HTTPS auf ein Gerät per HTTP zugreift (Mixed Content), blockiert der Browser den Abruf. In diesem Fall müssen die Geräte entsprechend konfiguriert oder über einen passenden HTTPS-/CORS-fähigen Proxy erreichbar gemacht werden.
