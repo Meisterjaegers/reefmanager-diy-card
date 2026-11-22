@@ -1,4 +1,7 @@
-class ReefmanagerDiyCard extends HTMLElement {
+const REEFMANAGER_HOST = "http://192.168.178.91";
+const MULTIMATE_HOST = "http://192.168.178.92";
+
+class ReefmanagerCardBase extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
@@ -9,16 +12,18 @@ class ReefmanagerDiyCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config || !config.host) {
-      throw new Error("Bitte host mit der IP-Adresse des Geräts konfigurieren.");
-    }
-    if (!["reefmanager", "multimate"].includes(config.device)) {
-      throw new Error('device muss "reefmanager" oder "multimate" sein.');
+    if (!config) {
+      throw new Error("Die Kartenkonfiguration fehlt.");
     }
 
+    this._device =
+      this.constructor.device === "reefmanager" &&
+      config.device === "multimate"
+        ? "multimate"
+        : this.constructor.device;
     this._config = {
       ...config,
-      host: String(config.host).replace(/\/+$/, ""),
+      host: String(config.host || this._defaultHost()).replace(/\/+$/, ""),
     };
     this._render();
     if (this.isConnected) this._startPolling();
@@ -33,7 +38,40 @@ class ReefmanagerDiyCard extends HTMLElement {
   }
 
   getCardSize() {
-    return this._config && this._config.device === "reefmanager" ? 4 : 3;
+    return this._device === "reefmanager" ? 4 : 3;
+  }
+
+  getConfigElement() {
+    return document.createElement(this.constructor.editorTag);
+  }
+
+  getStubConfig() {
+    return {
+      host: this._defaultHost(),
+      title: this._defaultTitle(),
+    };
+  }
+
+  _deviceType() {
+    return this._device || this.constructor.device;
+  }
+
+  _deviceHost() {
+    if (this._device === "multimate") return MULTIMATE_HOST;
+    return this.constructor.defaultHost;
+  }
+
+  _deviceTitle() {
+    if (this._device === "multimate") return "Multimate";
+    return this.constructor.defaultTitle;
+  }
+
+  _defaultHost() {
+    return this._deviceHost();
+  }
+
+  _defaultTitle() {
+    return this._deviceTitle();
   }
 
   _startPolling() {
@@ -58,7 +96,7 @@ class ReefmanagerDiyCard extends HTMLElement {
     this._error = null;
     try {
       const endpoints =
-        this._config.device === "reefmanager"
+        this._deviceType() === "reefmanager"
           ? ["/api/temperature/status", "/api/containers"]
           : ["/api/kh/status", "/api/containers"];
       const [status, containers] = await Promise.all(
@@ -183,14 +221,14 @@ class ReefmanagerDiyCard extends HTMLElement {
   }
 
   _number(value) {
-    return Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 1 }) : "—";
+    return Number.isFinite(value)
+      ? value.toLocaleString(undefined, { maximumFractionDigits: 1 })
+      : "—";
   }
 
   _render() {
     if (!this.shadowRoot || !this._config) return;
-    const title =
-      this._config.title ||
-      (this._config.device === "reefmanager" ? "Reefmanager" : "Multimate");
+    const title = this._config.title || this._defaultTitle();
     const card = this._element("article", "card");
     card.append(this._element("header", "", title));
 
@@ -206,7 +244,7 @@ class ReefmanagerDiyCard extends HTMLElement {
       card.append(this._element("p", "muted", "Lade Gerätedaten …"));
     } else {
       card.append(
-        this._config.device === "reefmanager"
+        this._deviceType() === "reefmanager"
           ? this._reefmanagerContent()
           : this._multimateContent(),
       );
@@ -237,11 +275,120 @@ class ReefmanagerDiyCard extends HTMLElement {
   }
 }
 
+class ReefmanagerDiyCard extends ReefmanagerCardBase {
+  static get device() {
+    return "reefmanager";
+  }
+
+  static get defaultHost() {
+    return REEFMANAGER_HOST;
+  }
+
+  static get defaultTitle() {
+    return "Reefmanager";
+  }
+
+  static get editorTag() {
+    return "reefmanager-diy-card-editor";
+  }
+}
+
+class MultimateDiyCard extends ReefmanagerCardBase {
+  static get device() {
+    return "multimate";
+  }
+
+  static get defaultHost() {
+    return MULTIMATE_HOST;
+  }
+
+  static get defaultTitle() {
+    return "Multimate";
+  }
+
+  static get editorTag() {
+    return "multimate-diy-card-editor";
+  }
+}
+
+class ReefmanagerDiyCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+  }
+
+  setConfig(config) {
+    this._config = { ...config };
+    this._render();
+  }
+
+  static get defaultHost() {
+    return REEFMANAGER_HOST;
+  }
+
+  static get defaultTitle() {
+    return "Reefmanager";
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    if (this._form) this._form.hass = hass;
+  }
+
+  _render() {
+    if (!this._config) return;
+    this._form = document.createElement("ha-form");
+    this._form.hass = this._hass;
+    this._form.data = {
+      host: this._config.host || this.constructor.defaultHost,
+      title: this._config.title || this.constructor.defaultTitle,
+    };
+    this._form.schema = [
+      { name: "host", selector: { text: {} } },
+      { name: "title", selector: { text: {} } },
+    ];
+    this._form.computeLabel = (schema) =>
+      schema.name === "host" ? "Geräteadresse" : "Kartentitel";
+    this._form.addEventListener("value-changed", (event) => {
+      const config = { ...this._config, ...event.detail.value };
+      this._config = config;
+      this.dispatchEvent(
+        new CustomEvent("config-changed", {
+          detail: { config },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+    });
+    this.shadowRoot.replaceChildren(this._form);
+  }
+}
+
+class MultimateDiyCardEditor extends ReefmanagerDiyCardEditor {
+  static get defaultHost() {
+    return MULTIMATE_HOST;
+  }
+
+  static get defaultTitle() {
+    return "Multimate";
+  }
+}
+
 customElements.define("reefmanager-diy-card", ReefmanagerDiyCard);
+customElements.define("multimate-diy-card", MultimateDiyCard);
+customElements.define("reefmanager-diy-card-editor", ReefmanagerDiyCardEditor);
+customElements.define("multimate-diy-card-editor", MultimateDiyCardEditor);
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "reefmanager-diy-card",
-  name: "Reefmanager DIY Card",
-  description: "Zeigt Temperatur, KH-Wert und Behälterstände des Reefmanager und Multimate.",
-});
+window.customCards.push(
+  {
+    type: "reefmanager-diy-card",
+    name: "Reefmanager DIY Card",
+    description: "Zeigt Temperatur und Dosierbehälter des Reefmanagers.",
+  },
+  {
+    type: "multimate-diy-card",
+    name: "Multimate DIY Card",
+    description: "Zeigt KH-Wert sowie Reagenz- und Abwasserstand.",
+  },
+);
