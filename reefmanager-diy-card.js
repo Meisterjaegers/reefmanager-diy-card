@@ -13,6 +13,13 @@ const DEFAULT_TEMPERATURE_GRADIENT = [
   { value: 25.5, color: "#FFF3B0" },
   { value: 27, color: "#FFADAD" },
 ];
+const DEFAULT_KH_GRADIENT = [
+  { value: 6.5, color: "#A2D2FF" },
+  { value: 7, color: "#A8E6CF" },
+  { value: 7.5, color: "#B8E994" },
+  { value: 8, color: "#FFF3B0" },
+  { value: 8.5, color: "#FFADAD" },
+];
 
 class ReefmanagerCardBase extends HTMLElement {
   static getStubConfig() {
@@ -145,6 +152,7 @@ class ReefmanagerCardBase extends HTMLElement {
     this._loading = false;
     this._timer = null;
     this._temperatureHistory = new Map();
+    this._khHistory = [];
   }
 
   setConfig(config) {
@@ -294,13 +302,15 @@ class ReefmanagerCardBase extends HTMLElement {
     this._historyError = null;
     try {
       const isReefmanager = this._deviceType() === "reefmanager";
-      const historyRequest = isReefmanager
-        ? this._fetchTemperatureHistory()
-            .then((history) => ({ history }))
-            .catch((error) => ({
-              error: error instanceof Error ? error.message : String(error),
-            }))
-        : Promise.resolve({ history: null });
+      const historyRequest = (
+        isReefmanager
+          ? this._fetchTemperatureHistory()
+          : this._fetchKhHistory()
+      )
+        .then((history) => ({ history }))
+        .catch((error) => ({
+          error: error instanceof Error ? error.message : String(error),
+        }));
       const requests = [
         this._fetchJson(
           isReefmanager ? "/api/temperature/status" : "/api/kh/status",
@@ -315,6 +325,11 @@ class ReefmanagerCardBase extends HTMLElement {
         this._temperatureHistory.set(key, historyResult.history);
       } else if (isReefmanager && historyResult.error) {
         this._temperatureHistory.clear();
+        this._historyError = historyResult.error;
+      } else if (!isReefmanager && historyResult.history) {
+        this._khHistory = historyResult.history;
+      } else if (!isReefmanager && historyResult.error) {
+        this._khHistory = [];
         this._historyError = historyResult.error;
       }
       this._data = { status, containers };
@@ -342,6 +357,24 @@ class ReefmanagerCardBase extends HTMLElement {
       throw new Error(`/api/temperature/history.bin: HTTP ${response.status}`);
     }
     return this._parseTemperatureHistory(await response.arrayBuffer());
+  }
+
+  async _fetchKhHistory() {
+    const history = await this._fetchJson("/api/kh/history");
+    if (!Array.isArray(history)) {
+      throw new Error("/api/kh/history: ungültiges Datenformat.");
+    }
+    return history
+      .filter(
+        (point) =>
+          point !== null &&
+          typeof point === "object" &&
+          Number.isFinite(point.t) &&
+          point.t > 0 &&
+          Number.isFinite(point.v),
+      )
+      .map((point) => ({ timestamp: point.t, value: point.v }))
+      .sort((a, b) => a.timestamp - b.timestamp);
   }
 
   _parseTemperatureHistory(buffer) {
@@ -372,7 +405,11 @@ class ReefmanagerCardBase extends HTMLElement {
       this._element("span", "temperature-value", value),
       this._element("span", "temperature-unit", "°C"),
     );
-    tile.append(reading, this._temperatureSparkline(control));
+    tile.append(
+      this._sectionLabel("Temperatur"),
+      reading,
+      this._temperatureSparkline(control),
+    );
     if (this._historyError) {
       tile.append(
         this._element(
@@ -386,24 +423,41 @@ class ReefmanagerCardBase extends HTMLElement {
   }
 
   _temperatureSparkline(control) {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("class", "sparkline");
-    svg.setAttribute("viewBox", "0 0 200 40");
-    svg.setAttribute("preserveAspectRatio", "none");
-    svg.setAttribute("role", "img");
     const key = String(control.port ?? control.name ?? "temperature");
     const historyDays = this._config.history_days ?? DEFAULT_HISTORY_DAYS;
     const windowSeconds = historyDays * 24 * 60 * 60;
     const endTimestamp = Date.now() / 1000;
     const startTimestamp = endTimestamp - windowSeconds;
-    svg.setAttribute(
-      "aria-label",
-      `Temperaturverlauf der letzten ${historyDays} Tage`,
-    );
     const history = (this._temperatureHistory.get(key) ?? []).filter(
       (point) =>
         point.timestamp >= startTimestamp && point.timestamp <= endTimestamp,
     );
+    return this._historySparkline(
+      history,
+      this._temperatureGradient ?? DEFAULT_TEMPERATURE_GRADIENT,
+      `Temperaturverlauf der letzten ${historyDays} Tage`,
+    );
+  }
+
+  _khSparkline() {
+    return this._historySparkline(
+      this._khHistory,
+      DEFAULT_KH_GRADIENT,
+      "KH-Verlauf",
+    );
+  }
+
+  _sectionLabel(label) {
+    return this._element("h2", "tile-section-label", label);
+  }
+
+  _historySparkline(history, gradient, label) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "sparkline");
+    svg.setAttribute("viewBox", "0 0 200 40");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", label);
     if (history.length === 0) return svg;
     const values = history.map((point) => point.value);
     const min = Math.min(...values);
@@ -419,7 +473,7 @@ class ReefmanagerCardBase extends HTMLElement {
       dot.setAttribute("cx", String(coordinates[0].x));
       dot.setAttribute("cy", String(coordinates[0].y));
       dot.setAttribute("r", "2");
-      dot.setAttribute("fill", this._temperatureColor(coordinates[0].value));
+      dot.setAttribute("fill", this._gradientColor(coordinates[0].value, gradient));
       svg.append(dot);
       return svg;
     }
@@ -434,7 +488,7 @@ class ReefmanagerCardBase extends HTMLElement {
       segment.setAttribute("y2", String(current.y));
       segment.setAttribute(
         "stroke",
-        this._temperatureColor((previous.value + current.value) / 2),
+        this._gradientColor((previous.value + current.value) / 2, gradient),
       );
       segment.setAttribute("stroke-width", "2");
       segment.setAttribute("stroke-linecap", "round");
@@ -443,8 +497,7 @@ class ReefmanagerCardBase extends HTMLElement {
     return svg;
   }
 
-  _temperatureColor(value) {
-    const gradient = this._temperatureGradient ?? DEFAULT_TEMPERATURE_GRADIENT;
+  _gradientColor(value, gradient) {
     if (value <= gradient[0].value) return gradient[0].color;
     if (value >= gradient[gradient.length - 1].value) {
       return gradient[gradient.length - 1].color;
@@ -529,7 +582,9 @@ class ReefmanagerCardBase extends HTMLElement {
     gauge.append(unit);
     tile.append(gauge, this._element("div", "gauge-label", label));
 
-    if (Number.isFinite(item.days_left) && item.days_left >= 0) {
+    if (Number.isFinite(item.days_left) && item.days_left === -1) {
+      tile.append(this._element("div", "gauge-detail", "∞ Tage"));
+    } else if (Number.isFinite(item.days_left) && item.days_left >= 0) {
       tile.append(
         this._element("div", "gauge-detail", `${item.days_left.toFixed(1)} Tage`),
       );
@@ -549,6 +604,7 @@ class ReefmanagerCardBase extends HTMLElement {
     }
 
     const items = this._data.containers.containers ?? [];
+    grid.append(this._sectionLabel("Verbrauchsbehälter"));
     if (items.length === 0) {
       grid.append(this._element("article", "tile muted", "Keine Behälterdaten verfügbar."));
     }
@@ -572,9 +628,23 @@ class ReefmanagerCardBase extends HTMLElement {
       ),
       this._element("span", "temperature-unit", "dKH"),
     );
-    khTile.append(reading);
+    khTile.append(
+      this._sectionLabel("KH"),
+      reading,
+      this._khSparkline(),
+    );
+    if (this._historyError) {
+      khTile.append(
+        this._element(
+          "div",
+          "history-error",
+          `KH-Verlauf nicht verfügbar: ${this._historyError}`,
+        ),
+      );
+    }
     grid.append(khTile);
 
+    grid.append(this._sectionLabel("Verbrauchsbehälter"));
     const items = [
       ["Reagenz", this._data.containers.reagent],
       ["Abwasser", this._data.containers.waste],
@@ -648,6 +718,8 @@ class ReefmanagerCardBase extends HTMLElement {
         min-width: 0;
         padding: 14px 16px;
       }
+      .tile-section-label { color: var(--secondary-text-color); font-size: .9rem; font-weight: 500; margin: 0 0 8px; }
+      .reefmanager-grid > .tile-section-label { grid-column: 1 / -1; margin: 4px 0 -4px; }
       .temperature-tile { grid-column: 1 / -1; }
       .kh-tile { grid-column: 1 / -1; }
       .temperature-reading { align-items: baseline; display: flex; gap: 4px; margin: 12px 0 2px; }

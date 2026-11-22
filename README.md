@@ -58,7 +58,17 @@ Die Füllstandsringe der Dosierbehälter zeigen den aktuellen Inhalt und färben
 
 ## Multimate-Karte
 
-Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt den letzten KH-Messwert ohne Verlauf sowie Reagenz- und Abwasserstand als eigene Füllstandsringe aus `/api/kh/status` und `/api/containers`. Für die Ringe gilt dieselbe Farbskala: ab 50 % grün, unter 50 % gelb und unter 25 % rot.
+Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt den letzten KH-Messwert und den Verlauf aus `/api/kh/status` und `/api/kh/history` sowie Reagenz- und Abwasserstand als eigene Füllstandsringe aus `/api/containers`. Die KH-Kurve interpoliert weich zwischen diesen Farbwerten:
+
+| KH-Wert | Farbe |
+|---:|:---|
+| 6,5 | `#A2D2FF` |
+| 7 | `#A8E6CF` |
+| 7,5 | `#B8E994` |
+| 8 | `#FFF3B0` |
+| 8,5 | `#FFADAD` |
+
+Für die Behälterringe gilt dieselbe Farbskala wie beim Reefmanager: ab 50 % grün, unter 50 % gelb und unter 25 % rot.
 
 Standard-IP-Adresse: `192.168.178.92`
 
