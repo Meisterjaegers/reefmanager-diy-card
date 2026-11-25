@@ -1,6 +1,6 @@
 # Reefmanager DIY Card
 
-![Reefmanager- und Multimate-Karte](images/reefmanager-multimate.png)
+![Reefmanager- und Multimate-Karte](images/reefmanager-multimate-cropped.png)
 
 Eine HACS-Custom-Lovelace-Karte für Reefmanager und Multimate. Die Karten rufen die Daten direkt über die HTTP-API der Geräte ab; eine Home-Assistant-Integration ist nicht erforderlich.
 
