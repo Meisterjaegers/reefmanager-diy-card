@@ -25,7 +25,7 @@ Falls HACS die Ressource nicht automatisch registriert, füge unter **Einstellun
 
 ## Reefmanager-Karte
 
-Die Reefmanager-Karte zeigt gemessene Temperaturwerte und den pH-Wert aus `/api/ph/live` nur dann an, wenn der jeweilige Wert größer als 0 ist. Der Temperaturverlauf sowie die Durchschnittstemperatur der letzten 24 Stunden und sieben Tage werden über `/api/temperature/history.bin` geladen; Temperaturwerte von 0 werden dabei ignoriert. Der Verlauf ist standardmäßig auf die letzten sieben Tage begrenzt. Der Titel „Reefmanager“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`.
+Die Reefmanager-Karte zeigt gemessene Temperaturwerte nur dann an, wenn sie größer als 0 sind. Der pH-Wert aus `/api/ph/live` wird nur bei `success: true` und einem Wert größer als 0 angezeigt. Der Temperaturverlauf sowie die Durchschnittstemperatur der letzten 24 Stunden und sieben Tage werden über `/api/temperature/history.bin` geladen; Temperaturwerte von 0 werden dabei ignoriert. Der Verlauf ist standardmäßig auf die letzten sieben Tage begrenzt. Der Titel „Reefmanager“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`.
 
 Standard-IP-Adresse: `192.168.178.91`
 
@@ -66,7 +66,7 @@ Die Füllstandsringe der Dosierbehälter zeigen den aktuellen Inhalt und färben
 
 ## Multimate-Karte
 
-Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt KH und pH aus `/api/kh/status` sowie PO₄ aus `/api/po4/status` nur an, wenn der jeweilige Messwert größer als 0 ist. Der KH-Verlauf der konfigurierten letzten 1 bis 7 Tage und die Durchschnitte der letzten 24 Stunden und sieben Tage kommen aus `/api/kh/history`; KH-Verlaufswerte von 0 werden ignoriert. Reagenz- und Abwasserstand werden als Füllstandsringe aus `/api/containers` angezeigt. Auf schmalen Smartphone-Bildschirmen werden bis zu vier Behälter nebeneinander angeordnet. Der Titel „Multimate“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`. Die KH-Kurve interpoliert weich zwischen diesen Farbwerten:
+Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt KH und PO₄ nur bei Messwerten größer als 0. Der pH-Wert aus `/api/kh/status` wird nur angezeigt, wenn zusätzlich `ph_enabled: true` ist. Der KH-Verlauf der konfigurierten letzten 1 bis 7 Tage und die Durchschnitte der letzten 24 Stunden und sieben Tage kommen aus `/api/kh/history`; KH-Verlaufswerte von 0 werden ignoriert. Reagenz- und Abwasserstand werden als Füllstandsringe aus `/api/containers` angezeigt. Auf schmalen Smartphone-Bildschirmen werden bis zu vier Behälter nebeneinander angeordnet. Der Titel „Multimate“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`. Die KH-Kurve interpoliert weich zwischen diesen Farbwerten:
 
 | KH-Wert | Farbe |
 |---:|:---|

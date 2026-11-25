@@ -756,11 +756,10 @@ class ReefmanagerCardBase extends HTMLElement {
         grid.append(this._temperatureTile(control));
       }
     }
-    const phTile = this._measurementTile(
-      "pH",
-      this._data.phStatus?.ph,
-      "pH",
-    );
+    const phTile =
+      this._data.phStatus?.success === true
+        ? this._measurementTile("pH", this._data.phStatus.ph, "pH")
+        : null;
     if (phTile) grid.append(phTile);
     const items = this._data.containers.containers ?? [];
     grid.append(
@@ -794,11 +793,10 @@ class ReefmanagerCardBase extends HTMLElement {
       grid.append(khTile);
     }
 
-    const phTile = this._measurementTile(
-      "pH",
-      this._data.status.last_ph,
-      "pH",
-    );
+    const phTile =
+      this._data.status.ph_enabled === true
+        ? this._measurementTile("pH", this._data.status.last_ph, "pH")
+        : null;
     if (phTile) grid.append(phTile);
 
     const po4Tile = this._measurementTile(

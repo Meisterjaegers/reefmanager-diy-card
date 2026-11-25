@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+- Show Multimate pH only when enabled and greater than zero; show PO4 only when greater than zero.
+- Show Reefmanager pH only when the live status is successful and the value is greater than zero.
+- Add configurable KH history range and display up to four consumption containers per row on mobile.
+- Ignore zero-valued temperature and KH readings in the displays and histories.
+- Document direct HACS-store installation and manual testing.
+
 ## 1.0.0
 
 - Add separate Reefmanager and Multimate Lovelace cards.
