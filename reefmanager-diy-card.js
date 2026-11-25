@@ -65,9 +65,7 @@ class ReefmanagerCardBase extends HTMLElement {
       host: this.defaultHost,
       title: this.defaultTitle,
       refresh_interval: DEFAULT_REFRESH_INTERVAL,
-      ...(this.device !== "multimate"
-        ? { history_days: DEFAULT_HISTORY_DAYS }
-        : {}),
+      history_days: DEFAULT_HISTORY_DAYS,
     };
     const gradient =
       this.device === "multimate"
@@ -116,21 +114,19 @@ class ReefmanagerCardBase extends HTMLElement {
     const gradientPrefix = isMultimate
       ? "kh_gradient"
       : "temperature_gradient";
-    if (!isMultimate) {
-      schema.push({
-        name: "history_days",
-        default: DEFAULT_HISTORY_DAYS,
-        selector: {
-          number: {
-            min: MIN_HISTORY_DAYS,
-            max: MAX_HISTORY_DAYS,
-            step: 1,
-            unit_of_measurement: "d",
-            mode: "box",
-          },
+    schema.push({
+      name: "history_days",
+      default: DEFAULT_HISTORY_DAYS,
+      selector: {
+        number: {
+          min: MIN_HISTORY_DAYS,
+          max: MAX_HISTORY_DAYS,
+          step: 1,
+          unit_of_measurement: "d",
+          mode: "box",
         },
-      });
-    }
+      },
+    });
     schema.push({
       type: "expandable",
       name: `${gradientPrefix}_group`,
@@ -153,7 +149,9 @@ class ReefmanagerCardBase extends HTMLElement {
           host: "IP-Adresse",
           title: "Kartentitel",
           refresh_interval: "Aktualisierungsintervall",
-          history_days: "Temperaturhistorie (Tage)",
+          history_days: isMultimate
+            ? "KH-Verlauf (Tage)"
+            : "Temperaturhistorie (Tage)",
           ...gradientFormLabels(
             gradientPrefix,
             gradient,
@@ -167,7 +165,7 @@ class ReefmanagerCardBase extends HTMLElement {
               host: "Nur die IP-Adresse eingeben, ohne http://.",
               refresh_interval:
                 "0 lädt die Werte einmal beim Öffnen der Karte; 5 bis 3600 aktualisiert regelmäßig.",
-              history_days: "Zeigt die Messwerte der letzten 1 bis 7 Tage.",
+              history_days: `Zeigt die Messwerte der letzten ${MIN_HISTORY_DAYS} bis ${MAX_HISTORY_DAYS} Tage.`,
               ...Object.fromEntries(
                 gradient.map((_, index) => [
                   `${gradientPrefix}_${index + 1}_value`,
@@ -220,10 +218,9 @@ class ReefmanagerCardBase extends HTMLElement {
       );
     }
     if (
-      this._device === "reefmanager" &&
-      (!Number.isInteger(historyDays) ||
-        historyDays < MIN_HISTORY_DAYS ||
-        historyDays > MAX_HISTORY_DAYS)
+      !Number.isInteger(historyDays) ||
+      historyDays < MIN_HISTORY_DAYS ||
+      historyDays > MAX_HISTORY_DAYS
     ) {
       throw new Error(
         `history_days muss eine ganze Zahl zwischen ${MIN_HISTORY_DAYS} und ${MAX_HISTORY_DAYS} sein.`,
@@ -233,7 +230,7 @@ class ReefmanagerCardBase extends HTMLElement {
       ...config,
       host: this._normalizeHost(config.host || this._defaultHost()),
       refresh_interval: refreshInterval,
-      ...(this._device === "reefmanager" ? { history_days: historyDays } : {}),
+      history_days: historyDays,
     };
     if (temperatureGradient) this._temperatureGradient = temperatureGradient;
     if (khGradient) this._khGradient = khGradient;
@@ -373,10 +370,14 @@ class ReefmanagerCardBase extends HTMLElement {
         this._fetchJson(
           isReefmanager ? "/api/temperature/status" : "/api/kh/status",
         ),
+        this._fetchJson(
+          isReefmanager ? "/api/ph/live" : "/api/po4/status",
+        ),
         this._fetchJson("/api/containers"),
         historyRequest,
       ];
-      const [status, containers, historyResult] = await Promise.all(requests);
+      const [status, measurementStatus, containers, historyResult] =
+        await Promise.all(requests);
       if (isReefmanager && historyResult.history) {
         const control = status.controls?.[0];
         const key = String(control?.port ?? control?.name ?? "temperature");
@@ -390,7 +391,13 @@ class ReefmanagerCardBase extends HTMLElement {
         this._khHistory = [];
         this._historyError = historyResult.error;
       }
-      this._data = { status, containers };
+      this._data = {
+        status,
+        containers,
+        ...(isReefmanager
+          ? { phStatus: measurementStatus }
+          : { po4Status: measurementStatus }),
+      };
     } catch (error) {
       this._error = error instanceof Error ? error.message : String(error);
     } finally {
@@ -429,7 +436,8 @@ class ReefmanagerCardBase extends HTMLElement {
           typeof point === "object" &&
           Number.isFinite(point.t) &&
           point.t > 0 &&
-          Number.isFinite(point.v),
+          Number.isFinite(point.v) &&
+          point.v > 0,
       )
       .map((point) => ({ timestamp: point.t, value: point.v }))
       .sort((a, b) => a.timestamp - b.timestamp);
@@ -446,7 +454,9 @@ class ReefmanagerCardBase extends HTMLElement {
     for (let offset = 0; offset < buffer.byteLength; offset += recordSize) {
       const timestamp = view.getUint32(offset, true);
       const temperature = view.getUint16(offset + 6, true);
-      if (timestamp === 0 || temperature === 0x8000) continue;
+      if (timestamp === 0 || temperature === 0 || temperature === 0x8000) {
+        continue;
+      }
       history.push({ timestamp, value: temperature / 100 });
     }
     history.sort((a, b) => a.timestamp - b.timestamp);
@@ -485,15 +495,24 @@ class ReefmanagerCardBase extends HTMLElement {
     return tile;
   }
 
+  _measurementTile(label, value, unit, fractionDigits = 2) {
+    if (!Number.isFinite(value) || value <= 0) return null;
+    const tile = this._element("article", "tile measurement-tile");
+    tile.setAttribute("aria-label", `${label}-Wert`);
+    const reading = this._element("div", "temperature-reading");
+    reading.append(
+      this._element("span", "temperature-value", value.toFixed(fractionDigits)),
+      this._element("span", "temperature-unit", unit),
+    );
+    tile.append(this._sectionLabel(label), reading);
+    return tile;
+  }
+
   _temperatureSparkline(control) {
     const key = String(control.port ?? control.name ?? "temperature");
     const historyDays = this._config.history_days ?? DEFAULT_HISTORY_DAYS;
-    const windowSeconds = historyDays * 24 * 60 * 60;
-    const endTimestamp = Date.now() / 1000;
-    const startTimestamp = endTimestamp - windowSeconds;
-    const history = (this._temperatureHistory.get(key) ?? []).filter(
-      (point) =>
-        point.timestamp >= startTimestamp && point.timestamp <= endTimestamp,
+    const history = this._historyForConfiguredDays(
+      this._temperatureHistory.get(key) ?? [],
     );
     return this._historySparkline(
       history,
@@ -503,10 +522,22 @@ class ReefmanagerCardBase extends HTMLElement {
   }
 
   _khSparkline() {
+    const historyDays = this._config.history_days ?? DEFAULT_HISTORY_DAYS;
     return this._historySparkline(
-      this._khHistory,
+      this._historyForConfiguredDays(this._khHistory),
       this._khGradient ?? DEFAULT_KH_GRADIENT,
-      "KH-Verlauf",
+      `KH-Verlauf der letzten ${historyDays} Tage`,
+    );
+  }
+
+  _historyForConfiguredDays(history) {
+    const endTimestamp = Date.now() / 1000;
+    const startTimestamp =
+      endTimestamp -
+      (this._config.history_days ?? DEFAULT_HISTORY_DAYS) * 24 * 60 * 60;
+    return history.filter(
+      (point) =>
+        point.timestamp >= startTimestamp && point.timestamp <= endTimestamp,
     );
   }
 
@@ -720,13 +751,17 @@ class ReefmanagerCardBase extends HTMLElement {
   _reefmanagerContent() {
     const grid = this._element("div", "reefmanager-grid");
     const controls = this._data.status.controls ?? [];
-    if (controls.length === 0) {
-      grid.append(this._temperatureTile({ name: "Temperatur" }));
-    } else {
-      for (const control of controls) {
+    for (const control of controls) {
+      if (Number.isFinite(control.currentTemp) && control.currentTemp > 0) {
         grid.append(this._temperatureTile(control));
       }
     }
+    const phTile = this._measurementTile(
+      "pH",
+      this._data.phStatus?.ph,
+      "pH",
+    );
+    if (phTile) grid.append(phTile);
     const items = this._data.containers.containers ?? [];
     grid.append(
       this._containersTile(
@@ -740,33 +775,39 @@ class ReefmanagerCardBase extends HTMLElement {
   _multimateContent() {
     const grid = this._element("div", "reefmanager-grid");
     const value = this._data.status.last_kh;
-    const khTile = this._element("article", "tile kh-tile");
-    khTile.setAttribute("aria-label", "KH-Wert");
-    const reading = this._element("div", "temperature-reading");
-    reading.append(
-      this._element(
-        "span",
-        "temperature-value",
-        Number.isFinite(value) ? value.toFixed(2) : "—",
-      ),
-      this._element("span", "temperature-unit", "dKH"),
-    );
-    khTile.append(
-      this._sectionLabel("KH"),
-      reading,
-      this._khSparkline(),
-      this._historyAverages(this._khHistory, "dKH"),
-    );
-    if (this._historyError) {
+    const khTile = this._measurementTile("KH", value, "dKH");
+    if (khTile) {
+      khTile.classList.add("kh-tile");
       khTile.append(
-        this._element(
-          "div",
-          "history-error",
-          `KH-Verlauf nicht verfügbar: ${this._historyError}`,
-        ),
+        this._khSparkline(),
+        this._historyAverages(this._khHistory, "dKH"),
       );
+      if (this._historyError) {
+        khTile.append(
+          this._element(
+            "div",
+            "history-error",
+            `KH-Verlauf nicht verfügbar: ${this._historyError}`,
+          ),
+        );
+      }
+      grid.append(khTile);
     }
-    grid.append(khTile);
+
+    const phTile = this._measurementTile(
+      "pH",
+      this._data.status.last_ph,
+      "pH",
+    );
+    if (phTile) grid.append(phTile);
+
+    const po4Tile = this._measurementTile(
+      "PO₄",
+      this._data.po4Status?.last_po4,
+      "mg/l",
+      3,
+    );
+    if (po4Tile) grid.append(po4Tile);
 
     const items = [
       ["Reagenz", this._data.containers.reagent],
@@ -901,6 +942,12 @@ class ReefmanagerCardBase extends HTMLElement {
       progress { accent-color: var(--primary-color); height: 6px; margin-top: 6px; width: 100%; }
       .detail { font-size: .8rem; margin: 2px 0 0; text-align: right; }
       .error { color: var(--error-color, #b3261e); }
+      @media (max-width: 480px) {
+        .container-group-grid { gap: 4px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .container-tile { min-width: 0; padding: 4px 0; }
+        .gauge-label { font-size: .75rem; }
+        .gauge-detail { font-size: .65rem; }
+      }
     `;
     this.shadowRoot.append(style, card);
   }

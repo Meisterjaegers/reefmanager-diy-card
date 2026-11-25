@@ -6,10 +6,16 @@ Eine HACS-Custom-Lovelace-Karte für Reefmanager und Multimate. Die Karten rufen
 
 ## Installation über HACS
 
-1. Öffne in Home Assistant **HACS → Dashboards**.
-2. Wähle **Benutzerdefinierte Repositories** und füge dieses GitHub-Repository als Typ **Dashboard** hinzu.
-3. Installiere **Reefmanager DIY Card** und lade Home Assistant beziehungsweise den Browser neu, falls HACS dazu auffordert.
+### Direkt aus dem HACS-Store
+
+1. Öffne in Home Assistant **HACS → Dashboards** und wähle **Repository erkunden und herunterladen** (je nach HACS-Version kann die Bezeichnung abweichen).
+2. Suche nach **Reefmanager DIY Card**, öffne den Eintrag und wähle **Herunterladen**.
+3. Lade Home Assistant oder den Browser neu, falls HACS dazu auffordert.
 4. Füge im Dashboard eine Karte hinzu und wähle **Reefmanager DIY Card** oder **Multimate DIY Card**. Alternativ kannst du die Karte per YAML konfigurieren.
+
+### Falls die Karte im Store nicht erscheint
+
+Füge sie einmalig als Custom Repository hinzu: Öffne **HACS → Dashboards → Benutzerdefinierte Repositories**, trage `https://github.com/meisterjaegers/reefmanager-diy-card` ein und wähle den Typ **Dashboard**. Danach kannst du die Karte in HACS installieren und wie oben zum Dashboard hinzufügen.
 
 Falls HACS die Ressource nicht automatisch registriert, füge unter **Einstellungen → Dashboards → Ressourcen** folgende URL als Ressource vom Typ **JavaScript-Modul** hinzu:
 
@@ -19,7 +25,7 @@ Falls HACS die Ressource nicht automatisch registriert, füge unter **Einstellun
 
 ## Reefmanager-Karte
 
-Die Reefmanager-Karte zeigt die aktuelle Temperatur, den Temperaturverlauf sowie die Durchschnittstemperatur der letzten 24 Stunden und sieben Tage. Der Verlauf wird über `/api/temperature/history.bin` geladen und standardmäßig auf die letzten sieben Tage begrenzt. Der Titel „Reefmanager“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`.
+Die Reefmanager-Karte zeigt gemessene Temperaturwerte und den pH-Wert aus `/api/ph/live` nur dann an, wenn der jeweilige Wert größer als 0 ist. Der Temperaturverlauf sowie die Durchschnittstemperatur der letzten 24 Stunden und sieben Tage werden über `/api/temperature/history.bin` geladen; Temperaturwerte von 0 werden dabei ignoriert. Der Verlauf ist standardmäßig auf die letzten sieben Tage begrenzt. Der Titel „Reefmanager“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`.
 
 Standard-IP-Adresse: `192.168.178.91`
 
@@ -60,7 +66,7 @@ Die Füllstandsringe der Dosierbehälter zeigen den aktuellen Inhalt und färben
 
 ## Multimate-Karte
 
-Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt den letzten KH-Messwert, den Verlauf sowie die KH-Durchschnitte der letzten 24 Stunden und sieben Tage aus `/api/kh/status` und `/api/kh/history`. Reagenz- und Abwasserstand werden als Füllstandsringe aus `/api/containers` angezeigt. Der Titel „Multimate“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`. Die KH-Kurve interpoliert weich zwischen diesen Farbwerten:
+Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt KH und pH aus `/api/kh/status` sowie PO₄ aus `/api/po4/status` nur an, wenn der jeweilige Messwert größer als 0 ist. Der KH-Verlauf der konfigurierten letzten 1 bis 7 Tage und die Durchschnitte der letzten 24 Stunden und sieben Tage kommen aus `/api/kh/history`; KH-Verlaufswerte von 0 werden ignoriert. Reagenz- und Abwasserstand werden als Füllstandsringe aus `/api/containers` angezeigt. Auf schmalen Smartphone-Bildschirmen werden bis zu vier Behälter nebeneinander angeordnet. Der Titel „Multimate“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`. Die KH-Kurve interpoliert weich zwischen diesen Farbwerten:
 
 | KH-Wert | Farbe |
 |---:|:---|
@@ -94,18 +100,19 @@ Standard-IP-Adresse: `192.168.178.92`
 type: custom:multimate-diy-card
 host: 192.168.178.92
 refresh_interval: 30
+history_days: 7
 ```
 
 ## Konfiguration
 
-Beide Karten unterstützen den visuellen Editor und YAML. Dort kannst du die IP-Adresse, den Kartentitel und das Aktualisierungsintervall festlegen. Bei der Reefmanager-Karte sind außerdem die Anzahl der angezeigten Verlaufstage und die Temperatur-Farbpunkte einstellbar; bei Multimate lässt sich der KH-Farbverlauf anpassen. Beide Farbverläufe sind im visuellen Editor einklappbar gruppiert. Mit `refresh_interval: 0` werden die Werte einmal beim Öffnen der Karte geladen und danach nicht automatisch aktualisiert.
+Beide Karten unterstützen den visuellen Editor und YAML. Dort kannst du die IP-Adresse, den Kartentitel und das Aktualisierungsintervall festlegen. Bei beiden Karten ist die Anzahl der angezeigten Verlaufstage einstellbar; zusätzlich lassen sich beim Reefmanager die Temperatur-Farbpunkte und bei Multimate der KH-Farbverlauf anpassen. Beide Farbverläufe sind im visuellen Editor einklappbar gruppiert. Mit `refresh_interval: 0` werden die Werte einmal beim Öffnen der Karte geladen und danach nicht automatisch aktualisiert.
 
 | Option | Karten | Standard | Werte |
 |---|---|---:|---|
 | `host` | Reefmanager, Multimate | gerätespezifische Standard-IP | IP-Adresse ohne `http://` |
 | `title` | Reefmanager, Multimate | `Reefmanager` oder `Multimate` | Freitext |
 | `refresh_interval` | Reefmanager, Multimate | `30` Sekunden | `0` = nur einmal beim Öffnen; sonst 5–3600 Sekunden |
-| `history_days` | Reefmanager | `7` Tage | 1–7 Tage |
+| `history_days` | Reefmanager, Multimate | `7` Tage | 1–7 Tage; begrenzt den angezeigten Temperatur- beziehungsweise KH-Verlauf |
 | `temperature_gradient_1_value` bis `temperature_gradient_5_value` | Reefmanager | siehe Farbskala oben | aufsteigende Temperaturwerte in °C |
 | `temperature_gradient_1_color` bis `temperature_gradient_5_color` | Reefmanager | siehe Farbskala oben | Farben im Format `#RRGGBB` |
 | `kh_gradient_1_value` bis `kh_gradient_5_value` | Multimate | siehe KH-Farbskala oben | aufsteigende KH-Werte von 0 bis 20 dKH |
