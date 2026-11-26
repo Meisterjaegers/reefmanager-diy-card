@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add pH history to the Multimate card from `/api/kh/history`; entries with `p` values are shown as a separate pH sparkline and averages.
+- Add the Reefmanager pH history from `/api/ph/history.bin` with a separate sparkline and averages; the pH gradient is configurable on both cards.
+- Add detailed, axis-labeled chart popups for temperature, KH, pH, and PO₄; load PO₄ history from `/api/po4/history` using its `po4` field.
+
 ## 1.1.0
 
 - Show Multimate pH only when enabled and greater than zero; show PO4 only when greater than zero.

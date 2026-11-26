@@ -20,6 +20,13 @@ const DEFAULT_KH_GRADIENT = [
   { value: 8, color: "#FFF3B0" },
   { value: 8.5, color: "#FFADAD" },
 ];
+const DEFAULT_PH_GRADIENT = [
+  { value: 7.8, color: "#A2D2FF" },
+  { value: 8.0, color: "#A8E6CF" },
+  { value: 8.2, color: "#B8E994" },
+  { value: 8.4, color: "#FFF3B0" },
+  { value: 8.6, color: "#FFADAD" },
+];
 
 function gradientFormSchema(prefix, gradient, unit, min, max) {
   return gradient.flatMap((stop, index) => {
@@ -67,15 +74,21 @@ class ReefmanagerCardBase extends HTMLElement {
       refresh_interval: DEFAULT_REFRESH_INTERVAL,
       history_days: DEFAULT_HISTORY_DAYS,
     };
-    const gradient =
+    const gradients =
       this.device === "multimate"
-        ? DEFAULT_KH_GRADIENT
-        : DEFAULT_TEMPERATURE_GRADIENT;
-    const prefix =
-      this.device === "multimate" ? "kh_gradient" : "temperature_gradient";
-    gradient.forEach((stop, index) => {
-      config[`${prefix}_${index + 1}_value`] = stop.value;
-      config[`${prefix}_${index + 1}_color`] = stop.color;
+        ? [
+            ["kh_gradient", DEFAULT_KH_GRADIENT],
+            ["ph_gradient", DEFAULT_PH_GRADIENT],
+          ]
+        : [
+            ["temperature_gradient", DEFAULT_TEMPERATURE_GRADIENT],
+            ["ph_gradient", DEFAULT_PH_GRADIENT],
+          ];
+    gradients.forEach(([prefix, gradient]) => {
+      gradient.forEach((stop, index) => {
+        config[`${prefix}_${index + 1}_value`] = stop.value;
+        config[`${prefix}_${index + 1}_color`] = stop.color;
+      });
     });
     return config;
   }
@@ -141,6 +154,20 @@ class ReefmanagerCardBase extends HTMLElement {
         isMultimate ? 20 : 60,
       ),
     });
+    schema.push({
+      type: "expandable",
+      name: "ph_gradient_group",
+      title: "pH-Farbverlauf",
+      expanded: false,
+      flatten: true,
+      schema: gradientFormSchema(
+        "ph_gradient",
+        DEFAULT_PH_GRADIENT,
+        "pH",
+        0,
+        14,
+      ),
+    });
 
     return {
       schema,
@@ -150,16 +177,18 @@ class ReefmanagerCardBase extends HTMLElement {
           title: "Kartentitel",
           refresh_interval: "Aktualisierungsintervall",
           history_days: isMultimate
-            ? "KH-Verlauf (Tage)"
+            ? "KH-/pH-Verlauf (Tage)"
             : "Temperaturhistorie (Tage)",
           ...gradientFormLabels(
             gradientPrefix,
             gradient,
             isMultimate ? "KH" : "Temperatur",
           ),
+          ...gradientFormLabels("ph_gradient", DEFAULT_PH_GRADIENT, "pH"),
         })[schema.name],
       computeHelper: (schema) =>
-        schema.name === `${gradientPrefix}_group`
+        schema.name === `${gradientPrefix}_group` ||
+        schema.name === "ph_gradient_group"
           ? "Farbpunkte müssen aufsteigend sortiert sein; Farben im Format #RRGGBB."
           : ({
               host: "Nur die IP-Adresse eingeben, ohne http://.",
@@ -172,6 +201,12 @@ class ReefmanagerCardBase extends HTMLElement {
                   "Die Farbpunkt-Werte müssen aufsteigend sortiert sein.",
                 ]),
               ),
+              ...Object.fromEntries(
+                DEFAULT_PH_GRADIENT.map((_, index) => [
+                  `ph_gradient_${index + 1}_value`,
+                  "Die pH-Farbpunkt-Werte müssen aufsteigend sortiert sein.",
+                ]),
+              ),
             })[schema.name],
     };
   }
@@ -182,10 +217,13 @@ class ReefmanagerCardBase extends HTMLElement {
     this._data = null;
     this._error = null;
     this._historyError = null;
+    this._phHistoryError = null;
     this._loading = false;
     this._timer = null;
     this._temperatureHistory = new Map();
     this._khHistory = [];
+    this._phHistory = [];
+    this._po4History = [];
   }
 
   setConfig(config) {
@@ -206,6 +244,7 @@ class ReefmanagerCardBase extends HTMLElement {
         : undefined;
     const khGradient =
       this._device === "multimate" ? this._getKhGradient(config) : undefined;
+    const phGradient = this._getPhGradient(config);
     if (
       typeof refreshInterval !== "number" ||
       !Number.isFinite(refreshInterval) ||
@@ -234,6 +273,7 @@ class ReefmanagerCardBase extends HTMLElement {
     };
     if (temperatureGradient) this._temperatureGradient = temperatureGradient;
     if (khGradient) this._khGradient = khGradient;
+    if (phGradient) this._phGradient = phGradient;
     this._render();
     if (this.isConnected) this._startPolling();
   }
@@ -273,6 +313,17 @@ class ReefmanagerCardBase extends HTMLElement {
       0,
       20,
       "KH",
+    );
+  }
+
+  _getPhGradient(config) {
+    return this._getGradient(
+      config,
+      "ph_gradient",
+      DEFAULT_PH_GRADIENT,
+      0,
+      14,
+      "pH",
     );
   }
 
@@ -355,6 +406,8 @@ class ReefmanagerCardBase extends HTMLElement {
     this._loading = true;
     this._error = null;
     this._historyError = null;
+    this._phHistoryError = null;
+    this._po4HistoryError = null;
     try {
       const isReefmanager = this._deviceType() === "reefmanager";
       const historyRequest = (
@@ -366,6 +419,20 @@ class ReefmanagerCardBase extends HTMLElement {
         .catch((error) => ({
           error: error instanceof Error ? error.message : String(error),
         }));
+      const phHistoryRequest = isReefmanager
+        ? this._fetchPhHistory()
+            .then((history) => ({ history }))
+            .catch((error) => ({
+              error: error instanceof Error ? error.message : String(error),
+            }))
+        : Promise.resolve(null);
+      const po4HistoryRequest = !isReefmanager
+        ? this._fetchPo4History()
+            .then((history) => ({ history }))
+            .catch((error) => ({
+              error: error instanceof Error ? error.message : String(error),
+            }))
+        : Promise.resolve(null);
       const requests = [
         this._fetchJson(
           isReefmanager ? "/api/temperature/status" : "/api/kh/status",
@@ -375,8 +442,17 @@ class ReefmanagerCardBase extends HTMLElement {
         ),
         this._fetchJson("/api/containers"),
         historyRequest,
+        phHistoryRequest,
+        po4HistoryRequest,
       ];
-      const [status, measurementStatus, containers, historyResult] =
+      const [
+        status,
+        measurementStatus,
+        containers,
+        historyResult,
+        phHistoryResult,
+        po4HistoryResult,
+      ] =
         await Promise.all(requests);
       if (isReefmanager && historyResult.history) {
         const control = status.controls?.[0];
@@ -385,11 +461,26 @@ class ReefmanagerCardBase extends HTMLElement {
       } else if (isReefmanager && historyResult.error) {
         this._temperatureHistory.clear();
         this._historyError = historyResult.error;
+      }
+      if (isReefmanager && phHistoryResult?.history) {
+        this._phHistory = phHistoryResult.history;
+      } else if (isReefmanager && phHistoryResult?.error) {
+        this._phHistory = [];
+        this._phHistoryError = phHistoryResult.error;
       } else if (!isReefmanager && historyResult.history) {
-        this._khHistory = historyResult.history;
+        this._khHistory = historyResult.history.kh;
+        this._phHistory = historyResult.history.ph;
       } else if (!isReefmanager && historyResult.error) {
         this._khHistory = [];
+        this._phHistory = [];
         this._historyError = historyResult.error;
+        this._phHistoryError = historyResult.error;
+      }
+      if (!isReefmanager && po4HistoryResult?.history) {
+        this._po4History = po4HistoryResult.history;
+      } else if (!isReefmanager && po4HistoryResult?.error) {
+        this._po4History = [];
+        this._po4HistoryError = po4HistoryResult.error;
       }
       this._data = {
         status,
@@ -424,12 +515,23 @@ class ReefmanagerCardBase extends HTMLElement {
     return this._parseTemperatureHistory(await response.arrayBuffer());
   }
 
+  async _fetchPhHistory() {
+    const response = await fetch(
+      `http://${this._config.host}/api/ph/history.bin`,
+      { headers: { Accept: "application/octet-stream" } },
+    );
+    if (!response.ok) {
+      throw new Error(`/api/ph/history.bin: HTTP ${response.status}`);
+    }
+    return this._parsePhHistory(await response.arrayBuffer());
+  }
+
   async _fetchKhHistory() {
     const history = await this._fetchJson("/api/kh/history");
     if (!Array.isArray(history)) {
       throw new Error("/api/kh/history: ungültiges Datenformat.");
     }
-    return history
+    const khHistory = history
       .filter(
         (point) =>
           point !== null &&
@@ -440,6 +542,38 @@ class ReefmanagerCardBase extends HTMLElement {
           point.v > 0,
       )
       .map((point) => ({ timestamp: point.t, value: point.v }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+    const phHistory = history
+      .filter(
+        (point) =>
+          point !== null &&
+          typeof point === "object" &&
+          Number.isFinite(point.t) &&
+          point.t > 0 &&
+          Number.isFinite(point.p) &&
+          point.p > 0,
+      )
+      .map((point) => ({ timestamp: point.t, value: point.p }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+    return { kh: khHistory, ph: phHistory };
+  }
+
+  async _fetchPo4History() {
+    const history = await this._fetchJson("/api/po4/history");
+    if (!Array.isArray(history)) {
+      throw new Error("/api/po4/history: ungültiges Datenformat.");
+    }
+    return history
+      .filter(
+        (point) =>
+          point !== null &&
+          typeof point === "object" &&
+          Number.isFinite(point.t) &&
+          point.t > 0 &&
+          Number.isFinite(point.po4) &&
+          point.po4 > 0,
+      )
+      .map((point) => ({ timestamp: point.t, value: point.po4 }))
       .sort((a, b) => a.timestamp - b.timestamp);
   }
 
@@ -458,6 +592,24 @@ class ReefmanagerCardBase extends HTMLElement {
         continue;
       }
       history.push({ timestamp, value: temperature / 100 });
+    }
+    history.sort((a, b) => a.timestamp - b.timestamp);
+    return history;
+  }
+
+  _parsePhHistory(buffer) {
+    const recordSize = 8;
+    if (buffer.byteLength % recordSize !== 0) {
+      throw new Error("pH-Verlauf hat ein ungültiges Binärformat.");
+    }
+
+    const view = new DataView(buffer);
+    const history = [];
+    for (let offset = 0; offset < buffer.byteLength; offset += recordSize) {
+      const timestamp = view.getUint32(offset, true);
+      const ph = view.getUint16(offset + 4, true);
+      if (timestamp === 0 || ph === 0 || ph > 1400) continue;
+      history.push({ timestamp, value: ph / 100 });
     }
     history.sort((a, b) => a.timestamp - b.timestamp);
     return history;
@@ -514,19 +666,49 @@ class ReefmanagerCardBase extends HTMLElement {
     const history = this._historyForConfiguredDays(
       this._temperatureHistory.get(key) ?? [],
     );
-    return this._historySparkline(
+    return this._chartButton(
       history,
       this._temperatureGradient ?? DEFAULT_TEMPERATURE_GRADIENT,
-      `Temperaturverlauf der letzten ${historyDays} Tage`,
+      "Temperatur",
+      "°C",
+      2,
+      historyDays,
     );
   }
 
   _khSparkline() {
     const historyDays = this._config.history_days ?? DEFAULT_HISTORY_DAYS;
-    return this._historySparkline(
+    return this._chartButton(
       this._historyForConfiguredDays(this._khHistory),
       this._khGradient ?? DEFAULT_KH_GRADIENT,
-      `KH-Verlauf der letzten ${historyDays} Tage`,
+      "KH",
+      "dKH",
+      2,
+      historyDays,
+    );
+  }
+
+  _phSparkline() {
+    const historyDays = this._config.history_days ?? DEFAULT_HISTORY_DAYS;
+    return this._chartButton(
+      this._historyForConfiguredDays(this._phHistory),
+      this._phGradient ?? DEFAULT_PH_GRADIENT,
+      "pH",
+      "pH",
+      2,
+      historyDays,
+    );
+  }
+
+  _po4Sparkline() {
+    const historyDays = this._config.history_days ?? DEFAULT_HISTORY_DAYS;
+    return this._chartButton(
+      this._historyForConfiguredDays(this._po4History),
+      null,
+      "PO₄",
+      "mg/l",
+      3,
+      historyDays,
     );
   }
 
@@ -541,7 +723,7 @@ class ReefmanagerCardBase extends HTMLElement {
     );
   }
 
-  _historyAverages(history, unit) {
+  _historyAverages(history, unit, fractionDigits = 2) {
     const now = Date.now() / 1000;
     const averageFor = (hours) => {
       const start = now - hours * 60 * 60;
@@ -567,7 +749,7 @@ class ReefmanagerCardBase extends HTMLElement {
         this._element(
           "span",
           "history-average",
-          `${label}: ${average === null ? "—" : `${average.toFixed(2)} ${unit}`}`,
+          `${label}: ${average === null ? "—" : `${average.toFixed(fractionDigits)} ${unit}`}`,
         ),
       );
     }
@@ -600,7 +782,12 @@ class ReefmanagerCardBase extends HTMLElement {
       dot.setAttribute("cx", String(coordinates[0].x));
       dot.setAttribute("cy", String(coordinates[0].y));
       dot.setAttribute("r", "2");
-      dot.setAttribute("fill", this._gradientColor(coordinates[0].value, gradient));
+      dot.setAttribute(
+        "fill",
+        gradient
+          ? this._gradientColor(coordinates[0].value, gradient)
+          : "var(--primary-color)",
+      );
       svg.append(dot);
       return svg;
     }
@@ -615,11 +802,224 @@ class ReefmanagerCardBase extends HTMLElement {
       segment.setAttribute("y2", String(current.y));
       segment.setAttribute(
         "stroke",
-        this._gradientColor((previous.value + current.value) / 2, gradient),
+        gradient
+          ? this._gradientColor((previous.value + current.value) / 2, gradient)
+          : "var(--primary-color)",
       );
       segment.setAttribute("stroke-width", "2");
       segment.setAttribute("stroke-linecap", "round");
       svg.append(segment);
+    }
+    return svg;
+  }
+
+  _chartButton(history, gradient, measure, unit, fractionDigits, historyDays) {
+    const label = `${measure}-Verlauf der letzten ${historyDays} Tage`;
+    const button = this._element("button", "chart-trigger");
+    button.type = "button";
+    button.setAttribute("aria-label", `${label} im Detail öffnen`);
+    button.title = "Diagramm vergrößern";
+    button.append(this._historySparkline(history, gradient, label));
+    button.addEventListener("click", () =>
+      this._openHistoryDialog(history, gradient, measure, unit, fractionDigits),
+    );
+    return button;
+  }
+
+  _openHistoryDialog(history, gradient, measure, unit, fractionDigits) {
+    const dialog = this._element("dialog", "history-dialog");
+    dialog.setAttribute("aria-label", `${measure}-Verlauf im Detail`);
+    const header = this._element("div", "history-dialog-header");
+    header.append(
+      this._element("h2", "history-dialog-title", `${measure}-Verlauf`),
+    );
+    const closeButton = this._element(
+      "button",
+      "history-dialog-close",
+      "Schließen",
+    );
+    closeButton.type = "button";
+    closeButton.addEventListener("click", () => dialog.close());
+    header.append(closeButton);
+
+    const content = this._element("div", "history-dialog-content");
+    content.append(header);
+    if (history.length === 0) {
+      content.append(
+        this._element("p", "muted", "Für den gewählten Zeitraum liegen keine Messwerte vor."),
+      );
+    } else {
+      content.append(
+        this._element(
+          "p",
+          "history-dialog-summary",
+          `${history.length} Messpunkte · letzte ${this._config.history_days ?? DEFAULT_HISTORY_DAYS} Tage`,
+        ),
+        this._detailedHistoryChart(
+          history,
+          gradient,
+          measure,
+          unit,
+          fractionDigits,
+        ),
+      );
+    }
+    dialog.append(content);
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+    dialog.addEventListener(
+      "close",
+      () => {
+        dialog.remove();
+        if (this.isConnected) this._render();
+      },
+      { once: true },
+    );
+    this.shadowRoot.append(dialog);
+    dialog.showModal();
+  }
+
+  _detailedHistoryChart(history, gradient, measure, unit, fractionDigits) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "detailed-chart");
+    svg.setAttribute("viewBox", "0 0 760 420");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", `${measure}-Verlauf mit Zeit- und ${unit}-Achse`);
+
+    const plot = { left: 78, right: 740, top: 24, bottom: 350 };
+    const values = history.map((point) => point.value);
+    const dataMin = Math.min(...values);
+    const dataMax = Math.max(...values);
+    const padding =
+      dataMax === dataMin
+        ? Math.max(Math.abs(dataMin) * 0.05, 0.01)
+        : (dataMax - dataMin) * 0.05;
+    const min = dataMin - padding;
+    const max = dataMax + padding;
+    const range = max - min;
+    const minTime = history[0].timestamp;
+    const maxTime = history[history.length - 1].timestamp;
+    const timeRange = maxTime - minTime || 1;
+    const coordinates = history.map((point) => ({
+      x:
+        plot.left +
+        ((point.timestamp - minTime) / timeRange) * (plot.right - plot.left),
+      y:
+        plot.bottom -
+        ((point.value - min) / range) * (plot.bottom - plot.top),
+      value: point.value,
+    }));
+
+    for (let index = 0; index <= 4; index += 1) {
+      const y = plot.top + (index / 4) * (plot.bottom - plot.top);
+      const value = max - (index / 4) * range;
+      const gridLine = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "line",
+      );
+      gridLine.setAttribute("x1", String(plot.left));
+      gridLine.setAttribute("x2", String(plot.right));
+      gridLine.setAttribute("y1", String(y));
+      gridLine.setAttribute("y2", String(y));
+      gridLine.setAttribute("class", "chart-grid-line");
+      svg.append(gridLine);
+
+      const tick = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "text",
+      );
+      tick.setAttribute("x", String(plot.left - 10));
+      tick.setAttribute("y", String(y + 4));
+      tick.setAttribute("text-anchor", "end");
+      tick.setAttribute("class", "chart-axis-text");
+      tick.textContent = value.toFixed(fractionDigits);
+      svg.append(tick);
+    }
+
+    const firstTime = new Date(minTime * 1000);
+    const lastTime = new Date(maxTime * 1000);
+    for (let index = 0; index <= 2; index += 1) {
+      const ratio = index / 2;
+      const x = plot.left + ratio * (plot.right - plot.left);
+      const timestamp = minTime + ratio * (maxTime - minTime);
+      const tick = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "text",
+      );
+      tick.setAttribute("x", String(x));
+      tick.setAttribute("y", String(plot.bottom + 22));
+      tick.setAttribute("text-anchor", index === 0 ? "start" : index === 2 ? "end" : "middle");
+      tick.setAttribute("class", "chart-axis-text");
+      tick.textContent = new Date(timestamp * 1000).toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      svg.append(tick);
+    }
+
+    const yLabel = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    yLabel.setAttribute("x", "19");
+    yLabel.setAttribute("y", String((plot.top + plot.bottom) / 2));
+    yLabel.setAttribute("text-anchor", "middle");
+    yLabel.setAttribute("class", "chart-axis-title");
+    yLabel.setAttribute("transform", `rotate(-90 19 ${(plot.top + plot.bottom) / 2})`);
+    yLabel.textContent = measure === unit ? measure : `${measure} (${unit})`;
+    svg.append(yLabel);
+
+    const xLabel = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    xLabel.setAttribute("x", String((plot.left + plot.right) / 2));
+    xLabel.setAttribute("y", "410");
+    xLabel.setAttribute("text-anchor", "middle");
+    xLabel.setAttribute("class", "chart-axis-title");
+    xLabel.textContent = `Zeit (${firstTime.toLocaleDateString()} – ${lastTime.toLocaleDateString()})`;
+    svg.append(xLabel);
+
+    if (coordinates.length === 1) {
+      const point = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "circle",
+      );
+      point.setAttribute("cx", String(coordinates[0].x));
+      point.setAttribute("cy", String(coordinates[0].y));
+      point.setAttribute("r", "4");
+      point.setAttribute(
+        "fill",
+        gradient
+          ? this._gradientColor(coordinates[0].value, gradient)
+          : "var(--primary-color)",
+      );
+      svg.append(point);
+    } else {
+      for (let index = 1; index < coordinates.length; index += 1) {
+        const previous = coordinates[index - 1];
+        const current = coordinates[index];
+        const segment = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "line",
+        );
+        segment.setAttribute("x1", String(previous.x));
+        segment.setAttribute("y1", String(previous.y));
+        segment.setAttribute("x2", String(current.x));
+        segment.setAttribute("y2", String(current.y));
+        segment.setAttribute(
+          "stroke",
+          gradient
+            ? this._gradientColor((previous.value + current.value) / 2, gradient)
+            : "var(--primary-color)",
+        );
+        segment.setAttribute("stroke-width", "2");
+        segment.setAttribute("stroke-linecap", "round");
+        svg.append(segment);
+      }
     }
     return svg;
   }
@@ -760,7 +1160,22 @@ class ReefmanagerCardBase extends HTMLElement {
       this._data.phStatus?.success === true
         ? this._measurementTile("pH", this._data.phStatus.ph, "pH")
         : null;
-    if (phTile) grid.append(phTile);
+    if (phTile) {
+      phTile.append(
+        this._phSparkline(),
+        this._historyAverages(this._phHistory, "pH"),
+      );
+      if (this._phHistoryError) {
+        phTile.append(
+          this._element(
+            "div",
+            "history-error",
+            `pH-Verlauf nicht verfügbar: ${this._phHistoryError}`,
+          ),
+        );
+      }
+      grid.append(phTile);
+    }
     const items = this._data.containers.containers ?? [];
     grid.append(
       this._containersTile(
@@ -797,7 +1212,22 @@ class ReefmanagerCardBase extends HTMLElement {
       this._data.status.ph_enabled === true
         ? this._measurementTile("pH", this._data.status.last_ph, "pH")
         : null;
-    if (phTile) grid.append(phTile);
+    if (phTile) {
+      phTile.append(
+        this._phSparkline(),
+        this._historyAverages(this._phHistory, "pH"),
+      );
+      if (this._phHistoryError) {
+        phTile.append(
+          this._element(
+            "div",
+            "history-error",
+            `pH-Verlauf nicht verfügbar: ${this._phHistoryError}`,
+          ),
+        );
+      }
+      grid.append(phTile);
+    }
 
     const po4Tile = this._measurementTile(
       "PO₄",
@@ -805,7 +1235,22 @@ class ReefmanagerCardBase extends HTMLElement {
       "mg/l",
       3,
     );
-    if (po4Tile) grid.append(po4Tile);
+    if (po4Tile) {
+      po4Tile.append(
+        this._po4Sparkline(),
+        this._historyAverages(this._po4History, "mg/l", 3),
+      );
+      if (this._po4HistoryError) {
+        po4Tile.append(
+          this._element(
+            "div",
+            "history-error",
+            `PO₄-Verlauf nicht verfügbar: ${this._po4HistoryError}`,
+          ),
+        );
+      }
+      grid.append(po4Tile);
+    }
 
     const items = [
       ["Reagenz", this._data.containers.reagent],
@@ -844,6 +1289,7 @@ class ReefmanagerCardBase extends HTMLElement {
 
   _render() {
     if (!this.shadowRoot || !this._config) return;
+    if (this.shadowRoot.querySelector("dialog[open]")) return;
     const title = this._config.title || this._defaultTitle();
     const showDeviceTiles = this._data && !this._error;
     const card = this._element(
@@ -908,8 +1354,22 @@ class ReefmanagerCardBase extends HTMLElement {
       .temperature-unit { color: var(--secondary-text-color); font-size: .9rem; }
       .sparkline { display: block; height: 34px; margin-top: 6px; width: 100%; }
       .sparkline line { stroke-linecap: round; }
+      .chart-trigger { background: transparent; border: 0; color: inherit; cursor: zoom-in; display: block; margin: 0; padding: 0; text-align: left; width: 100%; }
+      .chart-trigger:focus-visible { border-radius: 3px; outline: 2px solid var(--primary-color); outline-offset: 2px; }
       .history-averages { color: var(--secondary-text-color); display: flex; flex-wrap: wrap; font-size: .75rem; gap: 4px 16px; margin-top: 4px; }
       .history-error { color: var(--secondary-text-color); font-size: .75rem; margin-top: 6px; }
+      .history-dialog { background: var(--ha-card-background, var(--card-background-color, white)); border: 0; border-radius: 12px; box-shadow: 0 8px 32px #0005; color: var(--primary-text-color); max-height: 90vh; max-width: 900px; padding: 0; width: min(94vw, 900px); }
+      .history-dialog::backdrop { background: #0008; }
+      .history-dialog-content { max-height: 90vh; overflow: auto; padding: 18px 22px 14px; }
+      .history-dialog-header { align-items: center; display: flex; justify-content: space-between; gap: 16px; }
+      .history-dialog-title { color: var(--primary-text-color); font-size: 1.15rem; margin: 0; }
+      .history-dialog-close { background: transparent; border: 1px solid var(--divider-color, #888); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 6px 10px; }
+      .history-dialog-close:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+      .history-dialog-summary { color: var(--secondary-text-color); font-size: .85rem; margin: 8px 0 0; }
+      .detailed-chart { display: block; height: auto; max-height: 70vh; margin-top: 8px; min-width: 760px; width: 100%; }
+      .chart-grid-line { stroke: var(--divider-color, #888); stroke-opacity: .45; }
+      .chart-axis-text { fill: var(--secondary-text-color); font-size: 12px; }
+      .chart-axis-title { fill: var(--primary-text-color); font-size: 13px; }
       .containers-group { color: inherit; display: block; grid-column: 1 / -1; text-decoration: none; }
       .containers-group:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
       .container-group-grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 110px), 110px)); justify-content: start; }
