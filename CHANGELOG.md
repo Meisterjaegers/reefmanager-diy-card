@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - Add pH history to the Multimate card from `/api/kh/history`; entries with `p` values are shown as a separate pH sparkline and averages.
 - Add the Reefmanager pH history from `/api/ph/history.bin` with a separate sparkline and averages; the pH gradient is configurable on both cards.
