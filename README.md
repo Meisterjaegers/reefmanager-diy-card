@@ -2,7 +2,7 @@
 
 ![Reefmanager- und Multimate-Karte im Vollausbau auf dem Desktop](images/reefmanager-full-setup.png)
 
-Eine Custom-Lovelace-Karte aus dem Marketplace für Reefmanager und Multimate. Die Karten rufen die Daten direkt über die HTTP-API der Geräte ab.
+Ein Custom-Dashboard für Reefmanager und Multimate. Die Karten rufen die Daten direkt über die API der Geräte ab.
 
 ## Installation über den Marketplace
 
