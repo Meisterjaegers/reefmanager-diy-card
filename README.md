@@ -2,11 +2,11 @@
 
 ![Reefmanager- und Multimate-Karte im Vollausbau auf dem Desktop](images/reefmanager-full-setup.png)
 
-Eine HACS-Custom-Lovelace-Karte für Reefmanager und Multimate. Die Karten rufen die Daten direkt über die HTTP-API der Geräte ab; eine Home-Assistant-Integration ist nicht erforderlich.
+Eine Custom-Lovelace-Karte aus dem Marketplace für Reefmanager und Multimate. Die Karten rufen die Daten direkt über die HTTP-API der Geräte ab.
 
-## Installation über HACS
+## Installation über den Marketplace
 
-1. Öffne den **Marketplace** in HACS.
+1. Öffne den **Marketplace** in Home Assistant.
 2. Suche nach **Reefmanager DIY Card** und installiere die Karte.
 3. Lade Home Assistant oder den Browser neu, falls erforderlich.
 4. Füge im Dashboard **Reefmanager DIY Card** oder **Multimate DIY Card** hinzu und konfiguriere die IP-Adresse des Geräts.
