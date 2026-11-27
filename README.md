@@ -4,26 +4,12 @@
 
 Eine HACS-Custom-Lovelace-Karte für Reefmanager und Multimate. Die Karten rufen die Daten direkt über die HTTP-API der Geräte ab; eine Home-Assistant-Integration ist nicht erforderlich.
 
-Die [Vollausbau-Vorschau](vollausbau-preview.html) verwendet dieselben Kartenkomponenten wie `reefmanager-diy-card.js` und simuliert dafür die Geräte-API mit Beispieldaten. So bleiben Layout, Diagramme und Detailansichten mit der Karte synchron; bei Änderungen an der Kartenansicht müssen gegebenenfalls auch die Vorschau-Beispieldaten angepasst werden.
-
 ## Installation über HACS
 
-### Direkt aus dem HACS-Store
-
-1. Öffne in Home Assistant **HACS → Dashboards** und wähle **Repository erkunden und herunterladen** (je nach HACS-Version kann die Bezeichnung abweichen).
-2. Suche nach **Reefmanager DIY Card**, öffne den Eintrag und wähle **Herunterladen**.
-3. Lade Home Assistant oder den Browser neu, falls HACS dazu auffordert.
-4. Füge im Dashboard eine Karte hinzu und wähle **Reefmanager DIY Card** oder **Multimate DIY Card**. Alternativ kannst du die Karte per YAML konfigurieren.
-
-### Falls die Karte im Store nicht erscheint
-
-Füge sie einmalig als Custom Repository hinzu: Öffne **HACS → Dashboards → Benutzerdefinierte Repositories**, trage `https://github.com/meisterjaegers/reefmanager-diy-card` ein und wähle den Typ **Dashboard**. Danach kannst du die Karte in HACS installieren und wie oben zum Dashboard hinzufügen.
-
-Falls HACS die Ressource nicht automatisch registriert, füge unter **Einstellungen → Dashboards → Ressourcen** folgende URL als Ressource vom Typ **JavaScript-Modul** hinzu:
-
-```text
-/hacsfiles/reefmanager-diy-card/reefmanager-diy-card.js
-```
+1. Öffne den **Marketplace** in HACS.
+2. Suche nach **Reefmanager DIY Card** und installiere die Karte.
+3. Lade Home Assistant oder den Browser neu, falls erforderlich.
+4. Füge im Dashboard **Reefmanager DIY Card** oder **Multimate DIY Card** hinzu und konfiguriere die IP-Adresse des Geräts.
 
 ## Reefmanager-Karte
 
