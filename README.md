@@ -66,6 +66,32 @@ Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Si
 
 Der Reagenzring verwendet dieselbe Farbskala wie beim Reefmanager: ab 50 % grün, unter 50 % gelb und unter 25 % rot. Beim Abwasserbehälter bedeutet ein steigender Füllstand ein steigendes Risiko: bis einschließlich 50 % grün, über 50 % bis unter 75 % gelb und ab 75 % rot.
 
+Die PO₄-Verlaufskurve verwendet standardmäßig diese Farbskala und interpoliert weich zwischen den Farben:
+
+| PO₄ (mg/l) | Farbe |
+|---:|:---|
+| 0,02 | `#A2D2FF` |
+| 0,04 | `#A8E6CF` |
+| 0,06 | `#B8E994` |
+| 0,1 | `#FFF3B0` |
+| 0,2 | `#FFADAD` |
+
+Die fünf PO₄-Farbpunkte sind im visuellen Editor in der einklappbaren Gruppe **PO₄-Farbverlauf** einstellbar. Die Werte müssen aufsteigend sortiert sein; Farben müssen im Format `#RRGGBB` angegeben werden. Per YAML heißen die Optionen `po4_gradient_1_value` bis `po4_gradient_5_value` und `po4_gradient_1_color` bis `po4_gradient_5_color`:
+
+```yaml
+type: custom:multimate-diy-card
+po4_gradient_1_value: 0.02
+po4_gradient_1_color: "#A2D2FF"
+po4_gradient_2_value: 0.04
+po4_gradient_2_color: "#A8E6CF"
+po4_gradient_3_value: 0.06
+po4_gradient_3_color: "#B8E994"
+po4_gradient_4_value: 0.1
+po4_gradient_4_color: "#FFF3B0"
+po4_gradient_5_value: 0.2
+po4_gradient_5_color: "#FFADAD"
+```
+
 Die KH-Farbpunkte sind im visuellen Editor in der einklappbaren Gruppe **KH-Farbverlauf** einstellbar. Die fünf Werte müssen aufsteigend sortiert sein; Farben müssen im Format `#RRGGBB` angegeben werden. Per YAML heißen die Optionen `kh_gradient_1_value` bis `kh_gradient_5_value` und `kh_gradient_1_color` bis `kh_gradient_5_color`:
 
 ```yaml
@@ -109,7 +135,7 @@ history_days: 7
 
 ## Konfiguration
 
-Beide Karten unterstützen den visuellen Editor und YAML. Dort kannst du die IP-Adresse, den Kartentitel und das Aktualisierungsintervall festlegen. Bei beiden Karten ist die Anzahl der angezeigten Verlaufstage sowie der pH-Farbverlauf einstellbar; zusätzlich lassen sich beim Reefmanager die Temperatur-Farbpunkte und bei Multimate der KH-Farbverlauf anpassen. Die Farbverläufe sind im visuellen Editor einklappbar gruppiert. Mit `refresh_interval: 0` werden die Werte einmal beim Öffnen der Karte geladen und danach nicht automatisch aktualisiert. Der Klick auf eine Verlaufsdiagramm-Kurve öffnet eine vergrößerte Ansicht mit Zeit- und Messwertachse.
+Beide Karten unterstützen den visuellen Editor und YAML. Dort kannst du die IP-Adresse, den Kartentitel und das Aktualisierungsintervall festlegen. Bei beiden Karten ist die Anzahl der angezeigten Verlaufstage sowie der pH-Farbverlauf einstellbar; zusätzlich lassen sich beim Reefmanager die Temperatur-Farbpunkte und bei Multimate die KH- und PO₄-Farbverläufe anpassen. Die Farbverläufe sind im visuellen Editor einklappbar gruppiert. Mit `refresh_interval: 0` werden die Werte einmal beim Öffnen der Karte geladen und danach nicht automatisch aktualisiert. Der Klick auf eine Verlaufsdiagramm-Kurve öffnet eine vergrößerte Ansicht mit Zeit- und Messwertachse.
 
 | Option | Karten | Standard | Werte |
 |---|---|---:|---|
@@ -121,6 +147,8 @@ Beide Karten unterstützen den visuellen Editor und YAML. Dort kannst du die IP-
 | `temperature_gradient_1_color` bis `temperature_gradient_5_color` | Reefmanager | siehe Farbskala oben | Farben im Format `#RRGGBB` |
 | `kh_gradient_1_value` bis `kh_gradient_5_value` | Multimate | siehe KH-Farbskala oben | aufsteigende KH-Werte von 0 bis 20 dKH |
 | `kh_gradient_1_color` bis `kh_gradient_5_color` | Multimate | siehe KH-Farbskala oben | Farben im Format `#RRGGBB` |
+| `po4_gradient_1_value` bis `po4_gradient_5_value` | Multimate | 0,02; 0,04; 0,06; 0,1; 0,2 | aufsteigende PO₄-Werte von 0 bis 2 mg/l |
+| `po4_gradient_1_color` bis `po4_gradient_5_color` | Multimate | siehe PO₄-Farbskala oben | Farben im Format `#RRGGBB` |
 | `ph_gradient_1_value` bis `ph_gradient_5_value` | Reefmanager, Multimate | 7,8; 8,0; 8,2; 8,4; 8,6 | aufsteigende pH-Werte von 0 bis 14 |
 | `ph_gradient_1_color` bis `ph_gradient_5_color` | Reefmanager, Multimate | siehe Standard-pH-Farbskala oben | Farben im Format `#RRGGBB` |
 

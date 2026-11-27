@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.1
+
+- Add a configurable PO₄ color gradient to the Multimate history chart.
+- Smooth compact history sparklines while keeping detailed charts tied to the original measurement points.
+
 ## 1.3.0
 
 - Warn when a measurement's latest history point is older than 24 hours.

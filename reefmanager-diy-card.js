@@ -27,8 +27,15 @@ const DEFAULT_PH_GRADIENT = [
   { value: 8.4, color: "#FFF3B0" },
   { value: 8.6, color: "#FFADAD" },
 ];
+const DEFAULT_PO4_GRADIENT = [
+  { value: 0.02, color: "#A2D2FF" },
+  { value: 0.04, color: "#A8E6CF" },
+  { value: 0.06, color: "#B8E994" },
+  { value: 0.1, color: "#FFF3B0" },
+  { value: 0.2, color: "#FFADAD" },
+];
 
-function gradientFormSchema(prefix, gradient, unit, min, max) {
+function gradientFormSchema(prefix, gradient, unit, min, max, step = 0.1) {
   return gradient.flatMap((stop, index) => {
     const point = index + 1;
     return [
@@ -39,7 +46,7 @@ function gradientFormSchema(prefix, gradient, unit, min, max) {
           number: {
             min,
             max,
-            step: 0.1,
+            step,
             unit_of_measurement: unit,
             mode: "box",
           },
@@ -79,6 +86,7 @@ class ReefmanagerCardBase extends HTMLElement {
         ? [
             ["kh_gradient", DEFAULT_KH_GRADIENT],
             ["ph_gradient", DEFAULT_PH_GRADIENT],
+            ["po4_gradient", DEFAULT_PO4_GRADIENT],
           ]
         : [
             ["temperature_gradient", DEFAULT_TEMPERATURE_GRADIENT],
@@ -168,6 +176,23 @@ class ReefmanagerCardBase extends HTMLElement {
         14,
       ),
     });
+    if (isMultimate) {
+      schema.push({
+        type: "expandable",
+        name: "po4_gradient_group",
+        title: "PO₄-Farbverlauf",
+        expanded: false,
+        flatten: true,
+        schema: gradientFormSchema(
+          "po4_gradient",
+          DEFAULT_PO4_GRADIENT,
+          "mg/l",
+          0,
+          2,
+          0.001,
+        ),
+      });
+    }
 
     return {
       schema,
@@ -185,10 +210,14 @@ class ReefmanagerCardBase extends HTMLElement {
             isMultimate ? "KH" : "Temperatur",
           ),
           ...gradientFormLabels("ph_gradient", DEFAULT_PH_GRADIENT, "pH"),
+          ...(isMultimate
+            ? gradientFormLabels("po4_gradient", DEFAULT_PO4_GRADIENT, "PO₄")
+            : {}),
         })[schema.name],
       computeHelper: (schema) =>
         schema.name === `${gradientPrefix}_group` ||
-        schema.name === "ph_gradient_group"
+        schema.name === "ph_gradient_group" ||
+        (isMultimate && schema.name === "po4_gradient_group")
           ? "Farbpunkte müssen aufsteigend sortiert sein; Farben im Format #RRGGBB."
           : ({
               host: "Nur die IP-Adresse eingeben, ohne http://.",
@@ -207,6 +236,14 @@ class ReefmanagerCardBase extends HTMLElement {
                   "Die pH-Farbpunkt-Werte müssen aufsteigend sortiert sein.",
                 ]),
               ),
+              ...(isMultimate
+                ? Object.fromEntries(
+                    DEFAULT_PO4_GRADIENT.map((_, index) => [
+                      `po4_gradient_${index + 1}_value`,
+                      "Die PO₄-Farbpunkt-Werte müssen aufsteigend sortiert sein.",
+                    ]),
+                  )
+                : {}),
             })[schema.name],
     };
   }
@@ -245,6 +282,10 @@ class ReefmanagerCardBase extends HTMLElement {
     const khGradient =
       this._device === "multimate" ? this._getKhGradient(config) : undefined;
     const phGradient = this._getPhGradient(config);
+    const po4Gradient =
+      this._device === "multimate"
+        ? this._getPo4Gradient(config)
+        : undefined;
     if (
       typeof refreshInterval !== "number" ||
       !Number.isFinite(refreshInterval) ||
@@ -274,6 +315,7 @@ class ReefmanagerCardBase extends HTMLElement {
     if (temperatureGradient) this._temperatureGradient = temperatureGradient;
     if (khGradient) this._khGradient = khGradient;
     if (phGradient) this._phGradient = phGradient;
+    if (po4Gradient) this._po4Gradient = po4Gradient;
     this._render();
     if (this.isConnected) this._startPolling();
   }
@@ -324,6 +366,17 @@ class ReefmanagerCardBase extends HTMLElement {
       0,
       14,
       "pH",
+    );
+  }
+
+  _getPo4Gradient(config) {
+    return this._getGradient(
+      config,
+      "po4_gradient",
+      DEFAULT_PO4_GRADIENT,
+      0,
+      2,
+      "PO₄",
     );
   }
 
@@ -720,7 +773,7 @@ class ReefmanagerCardBase extends HTMLElement {
     const historyDays = this._config.history_days ?? DEFAULT_HISTORY_DAYS;
     return this._chartButton(
       this._historyForConfiguredDays(this._po4History),
-      null,
+      this._po4Gradient ?? DEFAULT_PO4_GRADIENT,
       "PO₄",
       "mg/l",
       3,
@@ -776,6 +829,23 @@ class ReefmanagerCardBase extends HTMLElement {
     return this._element("h2", "tile-section-label", label);
   }
 
+  _smoothSegmentPath(coordinates, index) {
+    const previous = coordinates[index - 1];
+    const current = coordinates[index];
+    const before = coordinates[Math.max(0, index - 2)];
+    const after = coordinates[Math.min(coordinates.length - 1, index + 1)];
+    const tension = 1 / 12;
+    const control1 = {
+      x: previous.x + (current.x - before.x) * tension,
+      y: previous.y + (current.y - before.y) * tension,
+    };
+    const control2 = {
+      x: current.x - (after.x - previous.x) * tension,
+      y: current.y - (after.y - previous.y) * tension,
+    };
+    return `M ${previous.x} ${previous.y} C ${control1.x} ${control1.y}, ${control2.x} ${control2.y}, ${current.x} ${current.y}`;
+  }
+
   _historySparkline(history, gradient, label) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "sparkline");
@@ -785,12 +855,17 @@ class ReefmanagerCardBase extends HTMLElement {
     svg.setAttribute("aria-label", label);
     if (history.length === 0) return svg;
     const values = history.map((point) => point.value);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
+    const displayValues = values.map((value, index) =>
+      index === 0 || index === values.length - 1
+        ? value
+        : (values[index - 1] + 2 * value + values[index + 1]) / 4,
+    );
+    const min = Math.min(...displayValues);
+    const max = Math.max(...displayValues);
     const range = max - min || 1;
     const coordinates = history.map((point, index) => ({
       x: history.length === 1 ? 100 : (index / (history.length - 1)) * 200,
-      y: 36 - ((point.value - min) / range) * 32,
+      y: 36 - ((displayValues[index] - min) / range) * 32,
       value: point.value,
     }));
     if (coordinates.length === 1) {
@@ -811,11 +886,8 @@ class ReefmanagerCardBase extends HTMLElement {
     for (let index = 1; index < coordinates.length; index += 1) {
       const previous = coordinates[index - 1];
       const current = coordinates[index];
-      const segment = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      segment.setAttribute("x1", String(previous.x));
-      segment.setAttribute("y1", String(previous.y));
-      segment.setAttribute("x2", String(current.x));
-      segment.setAttribute("y2", String(current.y));
+      const segment = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      segment.setAttribute("d", this._smoothSegmentPath(coordinates, index));
       segment.setAttribute(
         "stroke",
         gradient
@@ -824,6 +896,8 @@ class ReefmanagerCardBase extends HTMLElement {
       );
       segment.setAttribute("stroke-width", "2");
       segment.setAttribute("stroke-linecap", "round");
+      segment.setAttribute("stroke-linejoin", "round");
+      segment.setAttribute("fill", "none");
       svg.append(segment);
     }
     return svg;
