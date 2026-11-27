@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reefmanager Vollausbau Vorschau</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --primary-text-color: #e9eef5;
+      --secondary-text-color: #aab4c2;
+      --card-background-color: #20252c;
+      --divider-color: #3b4450;
+      --disabled-color: #3b4450;
+      --primary-color: #03a9f4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px;
+      background: #101419;
+      color: var(--primary-text-color);
+      font-family: "Segoe UI", sans-serif;
+    }
+    .preview {
+      display: grid;
+      gap: 22px;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+      margin: 0 auto;
+      max-width: 1180px;
+    }
+  </style>
+  <script>
+    const now = Math.floor(Date.now() / 1000);
+    const timestamps = Array.from({ length: 25 }, (_, index) =>
+      now - (24 - index) * 7 * 24 * 60 * 60 / 24,
+    );
+    const phTimestamps = timestamps.map((timestamp) => timestamp - 30 * 60 * 60);
+    const temperatureValues = [
+      24.9, 25.0, 25.1, 25.0, 25.2, 25.3, 25.2, 25.4, 25.3, 25.5,
+      25.4, 25.6, 25.5, 25.4, 25.6, 25.5, 25.7, 25.5, 25.6, 25.4,
+      25.6, 25.5, 25.3, 25.5, 25.42,
+    ];
+    const phValues = [
+      8.08, 8.1, 8.12, 8.11, 8.14, 8.16, 8.15, 8.18, 8.17, 8.2,
+      8.18, 8.22, 8.19, 8.17, 8.2, 8.18, 8.21, 8.19, 8.22, 8.2,
+      8.18, 8.21, 8.19, 8.22, 8.21,
+    ];
+    const khValues = [
+      7.94, 7.98, 8.0, 7.97, 8.02, 8.04, 8.01, 8.08, 8.05, 8.1,
+      8.07, 8.12, 8.1, 8.08, 8.14, 8.1, 8.12, 8.09, 8.15, 8.11,
+      8.08, 8.13, 8.1, 8.14, 8.12,
+    ];
+    const po4Values = [
+      0.063, 0.06, 0.058, 0.061, 0.056, 0.054, 0.057, 0.052, 0.055, 0.05,
+      0.053, 0.048, 0.051, 0.054, 0.05, 0.052, 0.047, 0.05, 0.046, 0.049,
+      0.052, 0.048, 0.046, 0.047, 0.045,
+    ];
+    const jsonResponse = (data) => ({
+      ok: true,
+      json: async () => data,
+    });
+    const binaryResponse = (data) => ({
+      ok: true,
+      arrayBuffer: async () => data,
+    });
+    const temperatureHistory = new ArrayBuffer(timestamps.length * 8);
+    const temperatureView = new DataView(temperatureHistory);
+    const phBinaryHistory = new ArrayBuffer(timestamps.length * 8);
+    const phView = new DataView(phBinaryHistory);
+
+    timestamps.forEach((timestamp, index) => {
+      temperatureView.setUint32(index * 8, timestamp, true);
+      temperatureView.setUint16(index * 8 + 6, Math.round(temperatureValues[index] * 100), true);
+      phView.setUint32(index * 8, phTimestamps[index], true);
+      phView.setUint16(index * 8 + 4, Math.round(phValues[index] * 100), true);
+    });
+
+    window.fetch = async (input) => {
+      const url = new URL(input);
+      const { pathname, host } = url;
+      if (pathname === "/api/temperature/status") {
+        return jsonResponse({
+          controls: [{ port: 1, name: "Temperatur", currentTemp: 25.42 }],
+        });
+      }
+      if (pathname === "/api/ph/live") {
+        return jsonResponse({ success: true, ph: 8.21 });
+      }
+      if (pathname === "/api/temperature/history.bin") {
+        return binaryResponse(temperatureHistory);
+      }
+      if (pathname === "/api/ph/history.bin") {
+        return binaryResponse(phBinaryHistory);
+      }
+      if (pathname === "/api/kh/status") {
+        return jsonResponse({ last_kh: 8.12, ph_enabled: true, last_ph: 8.2 });
+      }
+      if (pathname === "/api/kh/history") {
+        return jsonResponse(timestamps.map((t, i) => ({
+          t,
+          v: khValues[i],
+          p: phValues[i],
+        })));
+      }
+      if (pathname === "/api/po4/status") {
+        return jsonResponse({ last_po4: 0.045 });
+      }
+      if (pathname === "/api/po4/history") {
+        return jsonResponse(timestamps.map((t, i) => ({ t, po4: po4Values[i] })));
+      }
+      if (pathname === "/api/containers" && host === "reefmanager-preview") {
+        return jsonResponse({
+          containers: [
+            { name: "A", current: 770, max: 1000, days_left: -1 },
+            { name: "B", current: 510, max: 1000, days_left: 18.4 },
+            { name: "C", current: 220, max: 1000, days_left: 6.2 },
+          ],
+        });
+      }
+      if (pathname === "/api/containers" && host === "multimate-preview") {
+        return jsonResponse({
+          reagent: { name: "Reagenz", current: 720, max: 1000, days_left: 16.8 },
+          waste: { name: "Abwasser", current: 260, max: 1000, days_left: 0 },
+        });
+      }
+      return { ok: false, status: 404 };
+    };
+  </script>
+</head>
+<body>
+  <main class="preview">
+    <reefmanager-diy-card id="reefmanager"></reefmanager-diy-card>
+    <multimate-diy-card id="multimate"></multimate-diy-card>
+  </main>
+  <script src="reefmanager-diy-card.js"></script>
+  <script>
+    document.getElementById("reefmanager").setConfig({
+      host: "reefmanager-preview",
+      title: "Reefmanager",
+      refresh_interval: 0,
+      history_days: 7,
+    });
+    document.getElementById("multimate").setConfig({
+      host: "multimate-preview",
+      title: "Multimate",
+      refresh_interval: 0,
+      history_days: 7,
+    });
+  </script>
+</body>
+</html>

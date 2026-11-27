@@ -1,8 +1,10 @@
 # Reefmanager DIY Card
 
-![Reefmanager- und Multimate-Karte](images/reefmanager-multimate-cropped.png)
+![Reefmanager- und Multimate-Karte im Vollausbau auf dem Desktop](images/reefmanager-full-setup.png)
 
 Eine HACS-Custom-Lovelace-Karte für Reefmanager und Multimate. Die Karten rufen die Daten direkt über die HTTP-API der Geräte ab; eine Home-Assistant-Integration ist nicht erforderlich.
+
+Die [Vollausbau-Vorschau](vollausbau-preview.html) verwendet dieselben Kartenkomponenten wie `reefmanager-diy-card.js` und simuliert dafür die Geräte-API mit Beispieldaten. So bleiben Layout, Diagramme und Detailansichten mit der Karte synchron; bei Änderungen an der Kartenansicht müssen gegebenenfalls auch die Vorschau-Beispieldaten angepasst werden.
 
 ## Installation über HACS
 
@@ -25,7 +27,7 @@ Falls HACS die Ressource nicht automatisch registriert, füge unter **Einstellun
 
 ## Reefmanager-Karte
 
-Die Reefmanager-Karte zeigt gemessene Temperaturwerte nur dann an, wenn sie größer als 0 sind. Der pH-Wert aus `/api/ph/live` wird nur bei `success: true` und einem Wert größer als 0 angezeigt. Temperaturverlauf und Durchschnittstemperatur der letzten 24 Stunden und sieben Tage kommen aus `/api/temperature/history.bin`; pH-Verlauf und Durchschnittswerte aus `/api/ph/history.bin`. Ungültige und nullwertige Messungen werden ignoriert. Beide Verläufe sind standardmäßig auf die letzten sieben Tage begrenzt. Ein Klick auf eine Verlaufskurve öffnet ein detailliertes Diagramm mit Zeit- und Messwertachse. Der Titel „Reefmanager“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`.
+Die Reefmanager-Karte zeigt gemessene Temperaturwerte nur dann an, wenn sie größer als 0 sind. Der pH-Wert aus `/api/ph/live` wird nur bei `success: true` und einem Wert größer als 0 angezeigt. Temperaturverlauf und Durchschnittstemperatur der letzten 24 Stunden und sieben Tage kommen aus `/api/temperature/history.bin`; pH-Verlauf und Durchschnittswerte aus `/api/ph/history.bin`. Ungültige und nullwertige Messungen werden ignoriert. Beide Verläufe sind standardmäßig auf die letzten sieben Tage begrenzt. Ist der letzte Verlaufsmesspunkt einer Messgröße älter als 24 Stunden, zeigt die zugehörige Kachel eine Warnung an. Ein Klick auf eine Verlaufskurve öffnet ein detailliertes Diagramm mit Zeit- und Messwertachse; beim Überfahren eines Messpunkts mit der Maus werden Zeitpunkt und Messwert eingeblendet. Der Titel „Reefmanager“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`.
 
 Standard-IP-Adresse: `192.168.178.91`
 
@@ -66,7 +68,7 @@ Die Füllstandsringe der Dosierbehälter zeigen den aktuellen Inhalt und färben
 
 ## Multimate-Karte
 
-Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt KH und PO₄ nur bei Messwerten größer als 0. Der pH-Wert aus `/api/kh/status` wird nur angezeigt, wenn zusätzlich `ph_enabled: true` ist. KH- und pH-Verläufe kommen aus `/api/kh/history`: Punkte mit `v` liefern KH, Punkte mit `p` pH. Der PO₄-Verlauf kommt aus `/api/po4/history` als Punkte mit `t` (Zeit) und `po4` (Messwert); ein zusätzliches Feld `p` wird dafür nicht verwendet. Werte von 0 oder kleiner werden ignoriert; für alle drei Messgrößen zeigt die Karte Durchschnitte der letzten 24 Stunden und sieben Tage. Ein Klick auf eine Verlaufskurve öffnet ein detailliertes Diagramm mit Zeit- und Messwertachse. Reagenz- und Abwasserstand werden als Füllstandsringe aus `/api/containers` angezeigt. Auf schmalen Smartphone-Bildschirmen werden bis zu vier Behälter nebeneinander angeordnet. Der Titel „Multimate“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`. Die KH-Kurve interpoliert weich zwischen diesen Farbwerten:
+Die Multimate-Karte verwendet denselben Kachelstil wie die Reefmanager-Karte. Sie zeigt KH und PO₄ nur bei Messwerten größer als 0. Der pH-Wert aus `/api/kh/status` wird nur angezeigt, wenn zusätzlich `ph_enabled: true` ist. KH- und pH-Verläufe kommen aus `/api/kh/history`: Punkte mit `v` liefern KH, Punkte mit `p` pH. Der PO₄-Verlauf kommt aus `/api/po4/history` als Punkte mit `t` (Zeit) und `po4` (Messwert); ein zusätzliches Feld `p` wird dafür nicht verwendet. Werte von 0 oder kleiner werden ignoriert; für alle drei Messgrößen zeigt die Karte Durchschnitte der letzten 24 Stunden und sieben Tage. Ist der letzte Verlaufsmesspunkt einer Messgröße älter als 24 Stunden, zeigt die zugehörige Kachel eine Warnung an. Ein Klick auf eine Verlaufskurve öffnet ein detailliertes Diagramm mit Zeit- und Messwertachse; beim Überfahren eines Messpunkts mit der Maus werden Zeitpunkt und Messwert eingeblendet. Reagenz- und Abwasserstand werden als Füllstandsringe aus `/api/containers` angezeigt. Auf schmalen Smartphone-Bildschirmen werden bis zu vier Behälter nebeneinander angeordnet. Der Titel „Multimate“ verlinkt auf die Weboberfläche des Geräts; die Verbrauchsbehälter-Kachel öffnet `/containers.html`. Die KH-Kurve interpoliert weich zwischen diesen Farbwerten:
 
 | KH-Wert | Farbe |
 |---:|:---|

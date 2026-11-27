@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+- Warn when a measurement's latest history point is older than 24 hours.
+- Show measurement values and timestamps when hovering over detailed chart points.
+- Fit detailed charts to mobile screens and enlarge axis and hover labels on narrow displays.
+- Make measurement tiles the same width and add a full-build preview with simulated device data.
+- Replace the README screenshot with a desktop view of the full build.
+
 ## 1.2.0
 
 - Add pH history to the Multimate card from `/api/kh/history`; entries with `p` values are shown as a separate pH sparkline and averages.

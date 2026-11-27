@@ -621,6 +621,7 @@ class ReefmanagerCardBase extends HTMLElement {
       ? control.currentTemp.toFixed(2)
       : "—";
     const key = String(control.port ?? control.name ?? "temperature");
+    const history = this._temperatureHistory.get(key) ?? [];
     const reading = this._element("div", "temperature-reading");
     reading.append(
       this._element("span", "temperature-value", value),
@@ -630,11 +631,9 @@ class ReefmanagerCardBase extends HTMLElement {
       this._sectionLabel("Temperatur"),
       reading,
       this._temperatureSparkline(control),
-      this._historyAverages(
-        this._temperatureHistory.get(key) ?? [],
-        "°C",
-      ),
+      this._historyAverages(history, "°C"),
     );
+    this._appendStaleHistoryWarning(tile, history);
     if (this._historyError) {
       tile.append(
         this._element(
@@ -673,6 +672,23 @@ class ReefmanagerCardBase extends HTMLElement {
       "°C",
       2,
       historyDays,
+    );
+  }
+
+  _appendStaleHistoryWarning(tile, history) {
+    const latest = history[history.length - 1];
+    if (
+      !latest ||
+      Date.now() / 1000 - latest.timestamp <= 24 * 60 * 60
+    ) {
+      return;
+    }
+    tile.append(
+      this._element(
+        "div",
+        "history-warning",
+        "Warnung: Das letzte Messergebnis ist älter als 24 Stunden.",
+      ),
     );
   }
 
@@ -887,7 +903,15 @@ class ReefmanagerCardBase extends HTMLElement {
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", `${measure}-Verlauf mit Zeit- und ${unit}-Achse`);
 
-    const plot = { left: 78, right: 740, top: 24, bottom: 350 };
+    const compactLayout = window.matchMedia("(max-width: 600px)").matches;
+    const plot = {
+      left: compactLayout ? 130 : 78,
+      right: 740,
+      top: 24,
+      bottom: 350,
+    };
+    const tooltipWidth = compactLayout ? 460 : 220;
+    const tooltipHeight = compactLayout ? 44 : 28;
     const values = history.map((point) => point.value);
     const dataMin = Math.min(...values);
     const dataMax = Math.max(...values);
@@ -932,7 +956,7 @@ class ReefmanagerCardBase extends HTMLElement {
       tick.setAttribute("x", String(plot.left - 10));
       tick.setAttribute("y", String(y + 4));
       tick.setAttribute("text-anchor", "end");
-      tick.setAttribute("class", "chart-axis-text");
+      tick.setAttribute("class", "chart-axis-text chart-y-axis-tick");
       tick.textContent = value.toFixed(fractionDigits);
       svg.append(tick);
     }
@@ -950,7 +974,7 @@ class ReefmanagerCardBase extends HTMLElement {
       tick.setAttribute("x", String(x));
       tick.setAttribute("y", String(plot.bottom + 22));
       tick.setAttribute("text-anchor", index === 0 ? "start" : index === 2 ? "end" : "middle");
-      tick.setAttribute("class", "chart-axis-text");
+      tick.setAttribute("class", "chart-axis-text chart-x-axis-tick");
       tick.textContent = new Date(timestamp * 1000).toLocaleString(undefined, {
         month: "short",
         day: "numeric",
@@ -983,21 +1007,77 @@ class ReefmanagerCardBase extends HTMLElement {
     xLabel.textContent = `Zeit (${firstTime.toLocaleDateString()} – ${lastTime.toLocaleDateString()})`;
     svg.append(xLabel);
 
-    if (coordinates.length === 1) {
-      const point = document.createElementNS(
+    const tooltip = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "g",
+    );
+    tooltip.setAttribute("class", "chart-tooltip");
+    tooltip.setAttribute("visibility", "hidden");
+    const tooltipBackground = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "rect",
+    );
+    tooltipBackground.setAttribute("width", String(tooltipWidth));
+    tooltipBackground.setAttribute("height", String(tooltipHeight));
+    tooltipBackground.setAttribute("rx", "5");
+    const tooltipText = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    tooltipText.setAttribute("x", "10");
+    tooltipText.setAttribute(
+      "y",
+      String(Math.round(tooltipHeight * 0.68)),
+    );
+    tooltip.append(tooltipBackground, tooltipText);
+
+    const addDataPoint = (coordinate, point, visible = false) => {
+      const circle = document.createElementNS(
         "http://www.w3.org/2000/svg",
         "circle",
       );
-      point.setAttribute("cx", String(coordinates[0].x));
-      point.setAttribute("cy", String(coordinates[0].y));
-      point.setAttribute("r", "4");
-      point.setAttribute(
-        "fill",
-        gradient
-          ? this._gradientColor(coordinates[0].value, gradient)
-          : "var(--primary-color)",
-      );
-      svg.append(point);
+      const date = new Date(point.timestamp * 1000);
+      const label = `${date.toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })} · ${point.value.toFixed(fractionDigits)} ${unit}`;
+      circle.setAttribute("class", "chart-data-point");
+      circle.setAttribute("cx", String(coordinate.x));
+      circle.setAttribute("cy", String(coordinate.y));
+      circle.setAttribute("r", visible ? "4" : "8");
+      circle.setAttribute("fill", visible
+        ? gradient
+          ? this._gradientColor(coordinate.value, gradient)
+          : "var(--primary-color)"
+        : "transparent");
+      circle.setAttribute("tabindex", "0");
+      circle.setAttribute("aria-label", label);
+      const showTooltip = () => {
+        const x = Math.max(
+          8,
+          Math.min(760 - tooltipWidth - 8, coordinate.x - tooltipWidth / 2),
+        );
+        const aboveY = coordinate.y - tooltipHeight - 8;
+        const y =
+          aboveY >= 4
+            ? aboveY
+            : Math.min(420 - tooltipHeight - 4, coordinate.y + 12);
+        tooltipText.textContent = label;
+        tooltip.setAttribute("transform", `translate(${x} ${y})`);
+        tooltip.setAttribute("visibility", "visible");
+      };
+      const hideTooltip = () => tooltip.setAttribute("visibility", "hidden");
+      circle.addEventListener("pointerenter", showTooltip);
+      circle.addEventListener("pointerleave", hideTooltip);
+      circle.addEventListener("focus", showTooltip);
+      circle.addEventListener("blur", hideTooltip);
+      svg.append(circle);
+    };
+
+    if (coordinates.length === 1) {
+      addDataPoint(coordinates[0], history[0], true);
     } else {
       for (let index = 1; index < coordinates.length; index += 1) {
         const previous = coordinates[index - 1];
@@ -1020,7 +1100,11 @@ class ReefmanagerCardBase extends HTMLElement {
         segment.setAttribute("stroke-linecap", "round");
         svg.append(segment);
       }
+      coordinates.forEach((coordinate, index) =>
+        addDataPoint(coordinate, history[index]),
+      );
     }
+    svg.append(tooltip);
     return svg;
   }
 
@@ -1165,6 +1249,7 @@ class ReefmanagerCardBase extends HTMLElement {
         this._phSparkline(),
         this._historyAverages(this._phHistory, "pH"),
       );
+      this._appendStaleHistoryWarning(phTile, this._phHistory);
       if (this._phHistoryError) {
         phTile.append(
           this._element(
@@ -1196,6 +1281,7 @@ class ReefmanagerCardBase extends HTMLElement {
         this._khSparkline(),
         this._historyAverages(this._khHistory, "dKH"),
       );
+      this._appendStaleHistoryWarning(khTile, this._khHistory);
       if (this._historyError) {
         khTile.append(
           this._element(
@@ -1217,6 +1303,7 @@ class ReefmanagerCardBase extends HTMLElement {
         this._phSparkline(),
         this._historyAverages(this._phHistory, "pH"),
       );
+      this._appendStaleHistoryWarning(phTile, this._phHistory);
       if (this._phHistoryError) {
         phTile.append(
           this._element(
@@ -1240,6 +1327,7 @@ class ReefmanagerCardBase extends HTMLElement {
         this._po4Sparkline(),
         this._historyAverages(this._po4History, "mg/l", 3),
       );
+      this._appendStaleHistoryWarning(po4Tile, this._po4History);
       if (this._po4HistoryError) {
         po4Tile.append(
           this._element(
@@ -1349,6 +1437,7 @@ class ReefmanagerCardBase extends HTMLElement {
       .reefmanager-grid > .tile-section-label { grid-column: 1 / -1; margin: 4px 0 -4px; }
       .temperature-tile { grid-column: 1 / -1; }
       .kh-tile { grid-column: 1 / -1; }
+      .measurement-tile { grid-column: 1 / -1; }
       .temperature-reading { align-items: baseline; display: flex; gap: 4px; margin: 12px 0 2px; }
       .temperature-value { font-size: 1.7rem; font-weight: 400; }
       .temperature-unit { color: var(--secondary-text-color); font-size: .9rem; }
@@ -1358,6 +1447,7 @@ class ReefmanagerCardBase extends HTMLElement {
       .chart-trigger:focus-visible { border-radius: 3px; outline: 2px solid var(--primary-color); outline-offset: 2px; }
       .history-averages { color: var(--secondary-text-color); display: flex; flex-wrap: wrap; font-size: .75rem; gap: 4px 16px; margin-top: 4px; }
       .history-error { color: var(--secondary-text-color); font-size: .75rem; margin-top: 6px; }
+      .history-warning { color: var(--warning-color, #ffb74d); font-size: .8rem; font-weight: 500; margin-top: 8px; }
       .history-dialog { background: var(--ha-card-background, var(--card-background-color, white)); border: 0; border-radius: 12px; box-shadow: 0 8px 32px #0005; color: var(--primary-text-color); max-height: 90vh; max-width: 900px; padding: 0; width: min(94vw, 900px); }
       .history-dialog::backdrop { background: #0008; }
       .history-dialog-content { max-height: 90vh; overflow: auto; padding: 18px 22px 14px; }
@@ -1366,10 +1456,21 @@ class ReefmanagerCardBase extends HTMLElement {
       .history-dialog-close { background: transparent; border: 1px solid var(--divider-color, #888); border-radius: 6px; color: inherit; cursor: pointer; font: inherit; padding: 6px 10px; }
       .history-dialog-close:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
       .history-dialog-summary { color: var(--secondary-text-color); font-size: .85rem; margin: 8px 0 0; }
-      .detailed-chart { display: block; height: auto; max-height: 70vh; margin-top: 8px; min-width: 760px; width: 100%; }
+      .detailed-chart { display: block; height: auto; max-height: 70vh; margin-top: 8px; max-width: 100%; width: 100%; }
       .chart-grid-line { stroke: var(--divider-color, #888); stroke-opacity: .45; }
       .chart-axis-text { fill: var(--secondary-text-color); font-size: 12px; }
       .chart-axis-title { fill: var(--primary-text-color); font-size: 13px; }
+      .chart-data-point { cursor: crosshair; pointer-events: all; }
+      .chart-data-point:not(:focus):hover { fill: var(--primary-color); fill-opacity: .7; }
+      .chart-data-point:focus { fill: var(--primary-color); fill-opacity: .7; outline: none; }
+      .chart-tooltip { pointer-events: none; }
+      .chart-tooltip rect { fill: var(--ha-card-background, var(--card-background-color, #20252c)); stroke: var(--primary-color); }
+      .chart-tooltip text { fill: var(--primary-text-color); font-size: 12px; }
+      @media (max-width: 600px) {
+        .chart-axis-text { font-size: 30px; }
+        .chart-axis-title { font-size: 30px; }
+        .chart-tooltip text { font-size: 30px; }
+      }
       .containers-group { color: inherit; display: block; grid-column: 1 / -1; text-decoration: none; }
       .containers-group:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
       .container-group-grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 110px), 110px)); justify-content: start; }
